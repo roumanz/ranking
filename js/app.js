@@ -44,10 +44,20 @@ function isRankingEvent(ev) {
   const discName = String(ev.discipline_name ?? '').trim().toLowerCase();
   const name = String(ev.name ?? '').trim().toLowerCase();
 
-  if (levelCode === 'SEM' || levelName.includes('seminář') || levelName.includes('školení') || levelName.includes('workshop')) {
+  if (
+    levelCode === 'SEM' ||
+    levelName.includes('seminář') ||
+    levelName.includes('školení') ||
+    levelName.includes('workshop')
+  ) {
     return false;
   }
-  if (discName === 'sem' || name.startsWith('metodický seminář') || name.startsWith('školení ') || name.startsWith('workshop ')) {
+  if (
+    discName === 'sem' ||
+    name.startsWith('metodický seminář') ||
+    name.startsWith('školení ') ||
+    name.startsWith('workshop ')
+  ) {
     return false;
   }
 
@@ -69,11 +79,14 @@ function renderClassTable(cls) {
   const entries = Array.isArray(cls.entries) ? cls.entries : [];
   const totalCount = entries.length;
   const genderLabel = formatGenderLabel(cls.gender);
-  const koefLabel = cls.ranking_koef !== undefined && cls.ranking_koef !== null ? `koef. ${escapeHtml(cls.ranking_koef)}` : '';
+  const koefLabel =
+    cls.ranking_koef !== undefined && cls.ranking_koef !== null
+      ? `koef. ${escapeHtml(cls.ranking_koef)}`
+      : '';
   const metaParts = [genderLabel, koefLabel, `${totalCount} závodníků`].filter(Boolean);
 
   const missingSnapshotBadge = !cls.has_snapshot
-    ? `<span class="badge-warning" style="background:#ffeef0;color:#cf222e;padding:0.2rem 0.55rem;border-radius:999px;font-size:0.8rem;font-weight:600;">Ranking pro toto datum/pohlaví není k dispozici</span>`
+    ? `<span style="background:#ffeef0;color:#cf222e;padding:0.2rem 0.55rem;border-radius:999px;font-size:0.8rem;font-weight:600;">Ranking pro toto datum/pohlaví není k dispozici</span>`
     : '';
 
   const rowsHtml = totalCount
@@ -134,16 +147,11 @@ function renderEventDetail(data) {
   const panel = ensureDetailContainer();
   const ev = data.event || {};
   const classes = Array.isArray(data.classes) ? data.classes : [];
-  const snapshotsFound = Array.isArray(data.snapshots_found) && data.snapshots_found.length
-    ? data.snapshots_found.join(', ')
-    : 'žádný';
-
-  const typeLabel = ev.ranking_type === 'sprint' ? 'Sprint' : 'Les';
 
   const classButtonsHtml = classes
     .map(
       (cls, idx) =>
-        `<button type="button" class="class-jump-btn" data-class-idx="${idx}" style="padding:0.35rem 0.7rem;border:1px solid var(--border);border-radius:999px;background:var(--bg);cursor:pointer;font-size:0.85rem;">${escapeHtml(cls.name)}</button>`
+        `<button type="button" class="class-jump-btn" data-class-idx="${idx}">${escapeHtml(cls.name)}</button>`
     )
     .join('');
 
@@ -153,31 +161,18 @@ function renderEventDetail(data) {
 
   panel.innerHTML = `
     <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:8px;padding:1.25rem;">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
-        <div>
-          <h2 style="margin:0 0 0.5rem;font-size:1.3rem;">
-            ${escapeHtml(ev.name || 'Detail závodu')} (#${escapeHtml(ev.oris_id || '')})
-          </h2>
-          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;font-size:0.85rem;">
-            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
-              <strong>Typ:</strong> ${escapeHtml(typeLabel)}
-            </span>
-            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
-              <strong>Rozhodné datum:</strong> ${escapeHtml(ev.decision_date || '—')}
-            </span>
-            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
-              <strong>Snapshoty:</strong> ${escapeHtml(snapshotsFound)}
-            </span>
-          </div>
-        </div>
-        <button id="closeDetailBtn" type="button" style="padding:0.45rem 0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:500;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <h2 style="margin:0;font-size:1.3rem;">
+          ${escapeHtml(ev.name || 'Detail závodu')} (#${escapeHtml(ev.oris_id || '')})
+        </h2>
+        <button id="closeDetailBtn" type="button" class="detail-btn">
           Zavřít
         </button>
       </div>
 
       ${
         classes.length
-          ? `<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--border);">${classButtonsHtml}</div>`
+          ? `<div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--border);">${classButtonsHtml}</div>`
           : ''
       }
 
@@ -232,7 +227,8 @@ function renderEvents(events) {
   if (!eventsBody) return;
 
   if (!events.length) {
-    eventsBody.innerHTML = '<tr><td colspan="9" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
+    eventsBody.innerHTML =
+      '<tr><td colspan="9" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
     return;
   }
 
@@ -248,9 +244,13 @@ function renderEvents(events) {
         <td class="nowrap">${escapeHtml(ev.event_date)}</td>
         <td class="nowrap">
           <a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a>
-          <button type="button" class="detail-trigger" data-event-id="${id}" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.78rem;border:1px solid var(--border);border-radius:5px;background:var(--bg);cursor:pointer;">Detail →</button>
         </td>
-        <td><strong>${escapeHtml(ev.name)}</strong></td>
+        <td>
+          <div class="event-name-cell">
+            <strong>${escapeHtml(ev.name)}</strong>
+            <button type="button" class="detail-btn" data-event-id="${id}">Detail →</button>
+          </div>
+        </td>
         <td class="nowrap">${escapeHtml(ev.clubs || '—')}</td>
         <td class="nowrap">${escapeHtml(ev.region || '—')}</td>
         <td class="nowrap">${escapeHtml(sportLabel)}</td>
