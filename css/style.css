@@ -20,7 +20,7 @@ body {
 }
 
 .container {
-  max-width: 960px;
+  max-width: 1120px;
   margin: 0 auto;
   padding: 0 1rem;
 }
@@ -85,7 +85,7 @@ main {
 
 .events-table th,
 .events-table td {
-  padding: 0.7rem 0.9rem;
+  padding: 0.65rem 0.8rem;
   border-bottom: 1px solid var(--border);
 }
 
@@ -98,6 +98,11 @@ main {
 
 .events-table tbody tr:last-child td {
   border-bottom: none;
+}
+
+.cancelled-row {
+  opacity: 0.65;
+  text-decoration: line-through;
 }
 
 .nowrap {
