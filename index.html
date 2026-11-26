@@ -4,13 +4,13 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ORIS Ranking</title>
-  <link rel="stylesheet" href="css/style.css?v=13" />
+  <link rel="stylesheet" href="css/style.css?v=14" />
 </head>
 <body>
   <header class="site-header">
     <div class="container">
       <h1>ORIS Ranking</h1>
-      <p class="subtitle">Závody v rozmezí měsíc zpět až měsíc dopředu</p>
+      <p class="subtitle">Závody OB v rozmezí měsíc zpět až měsíc dopředu</p>
     </div>
   </header>
 
@@ -20,8 +20,17 @@
         id="searchInput"
         class="search-input"
         type="search"
-        placeholder="Filtrovat podle názvu, klubu, oblasti, sportu..."
+        placeholder="Filtrovat podle názvu, klubu, oblasti, disciplíny..."
       />
+      <label class="filter-check">
+        <input id="onlyRankingInput" type="checkbox" checked />
+        Pouze rankingové závody
+      </label>
+      <select id="rankingTypeSelect" class="filter-select">
+        <option value="">Všechny typy rankingu</option>
+        <option value="forest">Lesní (forest)</option>
+        <option value="sprint">Sprintový (sprint)</option>
+      </select>
       <span id="statusText" class="status-text">Načítám závody...</span>
     </div>
 
@@ -36,7 +45,7 @@
             <th>Oblast</th>
             <th>Sport</th>
             <th>Dis.</th>
-            <th>Úroveň</th>
+            <th>Ranking</th>
             <th>Záv.</th>
           </tr>
         </thead>
@@ -47,8 +56,17 @@
         </tbody>
       </table>
     </div>
+
+    <section id="eventDetailSection" class="detail-section" hidden>
+      <div class="detail-header">
+        <h2 id="detailTitle">Detail závodu</h2>
+        <button id="closeDetailBtn" type="button">Zavřít</button>
+      </div>
+      <div id="detailMeta" class="detail-meta"></div>
+      <div id="detailClasses"></div>
+    </section>
   </main>
 
-  <script type="module" src="js/app.js?v=13"></script>
+  <script type="module" src="js/app.js?v=14"></script>
 </body>
 </html>
