@@ -6,8 +6,8 @@ header('Content-Type: text/html; charset=utf-8');
 // -----------------------------------------------------------------------------
 // 1. Připojení k databázi (uprav dle svého db.php, pokud ho už máš)
 // -----------------------------------------------------------------------------
-if (file_exists(__DIR__ . '/db.php')) {
-    require_once __DIR__ . '/db.php';
+if (file_exists(__DIR__ . '/../config/db.php')) {
+    require_once __DIR__ . '/../config/db.php';
 }
 
 if (!isset($pdo) || !($pdo instanceof PDO)) {
