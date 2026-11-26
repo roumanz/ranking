@@ -11,6 +11,7 @@ const detailClasses = document.getElementById('detailClasses');
 const closeDetailBtn = document.getElementById('closeDetailBtn');
 
 let allEvents = [];
+let activeEventId = null;
 
 const SPORT_LABELS = {
   1: 'OB',
@@ -41,11 +42,19 @@ function formatSport(ev) {
 
 function formatRankingBadge(ev) {
   if (Number(ev.has_ranking) !== 1) {
-    return '—';
+    return '<span class="muted-text">—</span>';
   }
   const typeLabel = ev.ranking_type === 'sprint' ? 'Sprint' : 'Les';
-  const datePart = ev.ranking_decision_date ? ` (${ev.ranking_decision_date})` : '';
-  return `${typeLabel}${datePart}`;
+  const datePart = ev.ranking_decision_date ? ` · ${ev.ranking_decision_date}` : '';
+  return `<span class="ranking-pill">${escapeHtml(typeLabel + datePart)}</span>`;
+}
+
+function highlightActiveRow() {
+  if (!eventsBody) return;
+  eventsBody.querySelectorAll('tr.event-row').forEach((tr) => {
+    const isSelected = String(tr.getAttribute('data-oris-id')) === String(activeEventId ?? '');
+    tr.classList.toggle('is-selected', isSelected);
+  });
 }
 
 function renderEvents(events) {
@@ -61,19 +70,25 @@ function renderEvents(events) {
       const id = escapeHtml(ev.oris_id);
       const orisUrl = `https://oris.ceskyorientak.cz/Zavod?id=${encodeURIComponent(ev.oris_id)}`;
       const cancelledClass = Number(ev.is_cancelled) === 1 ? ' cancelled-row' : '';
+      const selectedClass = String(ev.oris_id) === String(activeEventId ?? '') ? ' is-selected' : '';
       const sportLabel = formatSport(ev);
-      const rankingLabel = formatRankingBadge(ev);
+      const rankingBadge = formatRankingBadge(ev);
 
       return `
-      <tr class="event-row${cancelledClass}" data-oris-id="${id}" style="cursor:pointer">
+      <tr class="event-row${cancelledClass}${selectedClass}" data-oris-id="${id}">
         <td class="nowrap">${escapeHtml(ev.event_date)}</td>
         <td class="nowrap"><a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a></td>
-        <td><strong>${escapeHtml(ev.name)}</strong></td>
+        <td>
+          <button type="button" class="event-trigger" data-event-id="${id}" title="Zobrazit kategorie a ranking">
+            <span class="event-name-text">${escapeHtml(ev.name)}</span>
+            <span class="event-action-hint">Detail →</span>
+          </button>
+        </td>
         <td class="nowrap">${escapeHtml(ev.clubs || '—')}</td>
         <td class="nowrap">${escapeHtml(ev.region || '—')}</td>
         <td class="nowrap">${escapeHtml(sportLabel)}</td>
         <td class="nowrap">${escapeHtml(ev.discipline_name || '—')}</td>
-        <td class="nowrap">${escapeHtml(rankingLabel)}</td>
+        <td class="nowrap">${rankingBadge}</td>
         <td class="nowrap">${escapeHtml(ev.entries_count ?? 0)}</td>
       </tr>
     `;
@@ -151,25 +166,45 @@ async function loadEvents() {
   }
 }
 
+function buildImportLink(rankingType, gender, decisionDate) {
+  const rankCode = rankingType === 'sprint' ? '8' : '2';
+  const params = new URLSearchParams({
+    ranking_type: rankingType || 'forest',
+    gender: gender || 'M',
+    date: decisionDate || '2026-11-30',
+    ranktype: rankCode,
+  });
+  return `api/import_ranking.php?${params.toString()}`;
+}
+
 function renderEventRankingDetail(payload) {
   if (!detailSection || !detailTitle || !detailMeta || !detailClasses) return;
 
   const ev = payload.event || {};
+  const rankType = ev.ranking_type || 'forest';
+  const decDate = ev.decision_date || '—';
+  const snaps = Array.isArray(payload.snapshots_found) ? payload.snapshots_found : [];
+
   detailTitle.textContent = `${ev.name || 'Závod'} (#${ev.oris_id || ''})`;
-  detailMeta.textContent = `Typ rankingu: ${ev.ranking_type || '—'} | Rozhodné datum: ${ev.decision_date || '—'} | Snapshoty v DB: ${(payload.snapshots_found || []).join(', ') || 'žádný'}`;
+  detailMeta.innerHTML = `
+    <span><strong>Typ:</strong> ${escapeHtml(rankType === 'sprint' ? 'Sprint' : 'Les')}</span>
+    <span><strong>Rozhodné datum:</strong> ${escapeHtml(decDate)}</span>
+    <span><strong>Snapshoty v DB:</strong> ${snaps.length ? escapeHtml(snaps.join(', ')) : 'žádný'}</span>
+  `;
 
   const classes = Array.isArray(payload.classes) ? payload.classes : [];
   if (!classes.length) {
-    detailClasses.innerHTML = '<p>Tento závod nemá žádné rankingové kategorie.</p>';
+    detailClasses.innerHTML = '<p class="empty-cell">Tento závod nemá žádné rankingové kategorie.</p>';
     detailSection.hidden = false;
     return;
   }
 
   detailClasses.innerHTML = classes
     .map((cls) => {
-      const snapNote = cls.has_snapshot
-        ? `Snapshot #${cls.snapshot_id}`
-        : 'Chybí snapshot v DB (naimportuj přes import_ranking.php)';
+      const importHref = buildImportLink(rankType, cls.gender, ev.decision_date);
+      const snapStatusHtml = cls.has_snapshot
+        ? `<span class="snap-ok">Snapshot #${escapeHtml(cls.snapshot_id)}</span>`
+        : `<span class="snap-missing">Chybí snapshot v DB — <a href="${escapeHtml(importHref)}" target="_blank" rel="noopener">importovat (${escapeHtml(rankType)} / ${escapeHtml(cls.gender || '?')})</a></span>`;
 
       const rowsHtml = (cls.entries || [])
         .map((ent) => `
@@ -186,7 +221,10 @@ function renderEventRankingDetail(payload) {
 
       return `
         <div class="class-block">
-          <h3>${escapeHtml(cls.name)} (Pohlaví: ${escapeHtml(cls.gender || '?')}, koef.: ${escapeHtml(cls.ranking_koef)}) — ${escapeHtml(snapNote)}</h3>
+          <div class="class-header">
+            <h3>${escapeHtml(cls.name)} <span class="class-sub">(${escapeHtml(cls.gender || '?')}, koef. ${escapeHtml(cls.ranking_koef)})</span></h3>
+            <div>${snapStatusHtml}</div>
+          </div>
           <table class="events-table">
             <thead>
               <tr>
@@ -214,9 +252,12 @@ function renderEventRankingDetail(payload) {
 async function openEventDetail(eventId) {
   if (!detailSection || !detailTitle || !detailMeta || !detailClasses) return;
 
+  activeEventId = String(eventId);
+  highlightActiveRow();
+
   detailSection.hidden = false;
   detailTitle.textContent = `Načítám závod #${eventId}...`;
-  detailMeta.textContent = '';
+  detailMeta.innerHTML = '';
   detailClasses.innerHTML = '';
 
   try {
@@ -228,7 +269,7 @@ async function openEventDetail(eventId) {
     renderEventRankingDetail(data);
   } catch (err) {
     detailTitle.textContent = `Chyba u závodu #${eventId}`;
-    detailClasses.innerHTML = `<p>${escapeHtml(err.message)}</p>`;
+    detailClasses.innerHTML = `<p class="snap-missing">${escapeHtml(err.message)}</p>`;
   }
 }
 
@@ -244,6 +285,8 @@ eventsBody?.addEventListener('click', (e) => {
 });
 
 closeDetailBtn?.addEventListener('click', () => {
+  activeEventId = null;
+  highlightActiveRow();
   if (detailSection) {
     detailSection.hidden = true;
   }
