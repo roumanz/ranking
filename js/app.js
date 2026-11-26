@@ -1,6 +1,5 @@
 const eventsBody = document.getElementById('eventsBody');
 const searchInput = document.getElementById('searchInput');
-const refreshBtn = document.getElementById('refreshBtn');
 const statusText = document.getElementById('statusText');
 
 let allEvents = [];
@@ -52,13 +51,11 @@ function applyFilter() {
   renderEvents(filtered);
 }
 
-async function loadEvents(forceRefresh = false) {
-  refreshBtn.disabled = true;
-  statusText.textContent = forceRefresh ? 'Synchronizuji s ORIS API...' : 'Načítám z databáze...';
+async function loadEvents() {
+  statusText.textContent = 'Načítám závody...';
 
   try {
-    const url = forceRefresh ? 'api/events.php?refresh=1' : 'api/events.php';
-    const response = await fetch(url);
+    const response = await fetch('api/events.php');
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -74,12 +71,9 @@ async function loadEvents(forceRefresh = false) {
   } catch (err) {
     statusText.textContent = 'Chyba při načítání';
     eventsBody.innerHTML = `<tr><td colspan="5" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
-  } finally {
-    refreshBtn.disabled = false;
   }
 }
 
 searchInput.addEventListener('input', applyFilter);
-refreshBtn.addEventListener('click', () => loadEvents(true));
 
-loadEvents(false);
+loadEvents();
