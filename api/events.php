@@ -163,7 +163,10 @@ try {
     };
 
     $buildSelectQuery = static function (bool $onlyRanking, string $rankType): array {
-        $where = ['event_date BETWEEN :date_from AND :date_to'];
+        $where = [
+            'event_date BETWEEN :date_from AND :date_to',
+            "(sport_id = '1' OR UPPER(sport_name) = 'OB')",
+        ];
         $params = [];
 
         if ($onlyRanking) {
@@ -201,17 +204,13 @@ try {
         return [$sql, $params];
     };
 
-    [$selectSql, $filterParams] = $buildSelectQuery($hasRankingFilter, $rankingTypeFilter);
-    $stmt = $pdo->prepare($selectSql);
-    $stmt->execute(array_merge([':date_from' => $dateFrom, ':date_to' => $dateTo], $filterParams));
-    $events = $stmt->fetchAll();
-
     // Kontrola stáří seznamu závodů (1 hodina)
-    $allRangeStmt = $pdo->prepare('
+    $allRangeStmt = $pdo->prepare("
         SELECT oris_id, discipline_name, has_ranking, ranking_decision_date, detail_synced_at, updated_at
         FROM oris_events
         WHERE event_date BETWEEN :date_from AND :date_to
-    ');
+          AND (sport_id = '1' OR UPPER(sport_name) = 'OB')
+    ");
     $allRangeStmt->execute([':date_from' => $dateFrom, ':date_to' => $dateTo]);
     $rangeRows = $allRangeStmt->fetchAll();
 
@@ -230,7 +229,7 @@ try {
 
     if ($needsListSync) {
         $orisUrl = sprintf(
-            'https://oris.ceskyorientak.cz/API/?format=json&method=getEventList&datefrom=%s&dateto=%s',
+            'https://oris.ceskyorientak.cz/API/?format=json&method=getEventList&datefrom=%s&dateto=%s&sport=1',
             urlencode($dateFrom),
             urlencode($dateTo)
         );
@@ -297,6 +296,10 @@ try {
                 $sportId = is_array($sportRaw) ? (string) ($sportRaw['ID'] ?? '') : (string) $sportRaw;
                 $sportName = $extractText($sportRaw, ['NameCZ', 'Abbr', 'ShortName', 'Name', 'ID']);
 
+                if ($sportId !== '' && $sportId !== '1' && strtoupper($sportName) !== 'OB') {
+                    continue;
+                }
+
                 $discRaw = $item['Discipline'] ?? $item['Disciplines'] ?? [];
                 $disciplineName = $extractText($discRaw, ['ShortName', 'Abbr', 'NameCZ', 'Name', 'ID']);
 
@@ -317,8 +320,8 @@ try {
                     ':oris_id' => $orisId,
                     ':name' => (string) ($item['Name'] ?? ''),
                     ':event_date' => substr($eventDate, 0, 10),
-                    ':sport_id' => $sportId,
-                    ':sport_name' => $sportName,
+                    ':sport_id' => $sportId !== '' ? $sportId : '1',
+                    ':sport_name' => $sportName !== '' ? $sportName : 'OB',
                     ':discipline_name' => $disciplineName,
                     ':level_code' => $levelCode,
                     ':level_name' => $levelName,
@@ -376,7 +379,6 @@ try {
         }
     }
 
-    // Znovunačtení výsledných závodů po případné synchronizaci
     [$selectSql, $filterParams] = $buildSelectQuery($hasRankingFilter, $rankingTypeFilter);
     $stmt = $pdo->prepare($selectSql);
     $stmt->execute(array_merge([':date_from' => $dateFrom, ':date_to' => $dateTo], $filterParams));
