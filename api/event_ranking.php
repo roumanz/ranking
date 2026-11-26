@@ -160,10 +160,11 @@ try {
         string $decisionDate
     ) use ($fetchText, $parseRankingCsv): ?array {
         $rankTypeCode = ($rankingType === 'sprint') ? 8 : 2;
+        $orisGenderParam = ($gender === 'W') ? 'F' : $gender;
         $sourceUrl = sprintf(
             'https://oris.ceskyorientak.cz/ranking_export?date=%s&sport=1&gender=%s&ranktype=%d&csv=1',
             urlencode($decisionDate),
-            urlencode($gender),
+            urlencode($orisGenderParam),
             $rankTypeCode
         );
 
