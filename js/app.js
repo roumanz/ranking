@@ -1,18 +1,9 @@
 const eventsBody = document.getElementById('eventsBody');
 const searchInput = document.getElementById('searchInput');
-const onlyRankingInput = document.getElementById('onlyRankingInput');
-const rankingTypeSelect = document.getElementById('rankingTypeSelect');
 const statusText = document.getElementById('statusText');
 
-const detailSection = document.getElementById('eventDetailSection');
-const detailTitle = document.getElementById('detailTitle');
-const detailMeta = document.getElementById('detailMeta');
-const categoryNav = document.getElementById('categoryNav');
-const detailClasses = document.getElementById('detailClasses');
-const closeDetailBtn = document.getElementById('closeDetailBtn');
-
 let allEvents = [];
-let activeEventId = null;
+let detailContainer = null;
 
 const SPORT_LABELS = {
   1: 'OB',
@@ -41,22 +32,186 @@ function formatSport(ev) {
   return '—';
 }
 
-function formatRankingBadge(ev) {
-  if (Number(ev.has_ranking) !== 1) {
-    return '<span class="muted-text">—</span>';
-  }
-  const typeLabel = ev.ranking_type === 'sprint' ? 'Sprint' : 'Les';
-  const badgeClass = ev.ranking_type === 'sprint' ? 'ranking-pill ranking-pill--sprint' : 'ranking-pill ranking-pill--forest';
-  const datePart = ev.ranking_decision_date ? ` · ${ev.ranking_decision_date}` : '';
-  return `<span class="${badgeClass}">${escapeHtml(typeLabel + datePart)}</span>`;
+function formatGenderLabel(gender) {
+  if (gender === 'M') return 'M';
+  if (gender === 'W' || gender === 'F') return 'W';
+  return '—';
 }
 
-function highlightActiveRow() {
-  if (!eventsBody) return;
-  eventsBody.querySelectorAll('tr.event-row').forEach((tr) => {
-    const isSelected = String(tr.getAttribute('data-oris-id')) === String(activeEventId ?? '');
-    tr.classList.toggle('is-selected', isSelected);
+function ensureDetailContainer() {
+  if (detailContainer) return detailContainer;
+
+  const mainEl = document.querySelector('main.container') || document.body;
+  detailContainer = document.createElement('section');
+  detailContainer.id = 'eventDetailPanel';
+  detailContainer.style.marginTop = '1.5rem';
+  mainEl.appendChild(detailContainer);
+  return detailContainer;
+}
+
+function renderClassTable(cls) {
+  const entries = Array.isArray(cls.entries) ? cls.entries : [];
+  const totalCount = entries.length;
+  const genderLabel = formatGenderLabel(cls.gender);
+  const koefLabel = cls.ranking_koef !== undefined && cls.ranking_koef !== null ? `koef. ${escapeHtml(cls.ranking_koef)}` : '';
+  const metaParts = [genderLabel, koefLabel, `${totalCount} závodníků`].filter(Boolean);
+
+  const missingSnapshotBadge = !cls.has_snapshot
+    ? `<span class="badge-warning" style="background:#ffeef0;color:#cf222e;padding:0.2rem 0.55rem;border-radius:999px;font-size:0.8rem;font-weight:600;">Ranking pro toto datum/pohlaví není k dispozici</span>`
+    : '';
+
+  const rowsHtml = totalCount
+    ? entries
+        .map((entry, index) => {
+          const seqNo = index + 1;
+          const rowClass = index < 4 ? ' class="top4-row"' : '';
+
+          return `
+            <tr${rowClass}>
+              <td class="col-idx nowrap">${seqNo}.</td>
+              <td class="nowrap">${escapeHtml(entry.rank_position ?? '—')}</td>
+              <td class="nowrap">${escapeHtml(entry.reg_no || '—')}</td>
+              <td>${escapeHtml(entry.name || '—')}</td>
+              <td class="nowrap">${escapeHtml(entry.club || '—')}</td>
+              <td class="nowrap">${escapeHtml(entry.points ?? '—')}</td>
+              <td class="nowrap">${escapeHtml(entry.ranking_coef ?? '—')}</td>
+            </tr>
+          `;
+        })
+        .join('')
+    : `
+      <tr>
+        <td colspan="7" class="empty-cell">Žádní přihlášení závodníci v této kategorii.</td>
+      </tr>
+    `;
+
+  return `
+    <div class="class-block" style="margin-top:1.25rem;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:0.75rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+        <h3 style="margin:0;font-size:1.05rem;">
+          ${escapeHtml(cls.name || '')}
+          <span style="color:var(--muted);font-weight:400;font-size:0.9rem;">(${metaParts.join(' · ')})</span>
+        </h3>
+        ${missingSnapshotBadge}
+      </div>
+      <div class="table-wrap">
+        <table class="events-table">
+          <thead>
+            <tr>
+              <th class="col-idx nowrap">#</th>
+              <th class="nowrap">RANK. POŘADÍ</th>
+              <th class="nowrap">REG. Č.</th>
+              <th>JMÉNO</th>
+              <th class="nowrap">KLUB</th>
+              <th class="nowrap">BODY</th>
+              <th class="nowrap">KOEF.</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rowsHtml}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderEventDetail(data) {
+  const panel = ensureDetailContainer();
+  const ev = data.event || {};
+  const classes = Array.isArray(data.classes) ? data.classes : [];
+  const snapshotsFound = Array.isArray(data.snapshots_found) && data.snapshots_found.length
+    ? data.snapshots_found.join(', ')
+    : 'žádný';
+
+  const typeLabel = ev.ranking_type === 'sprint' ? 'Sprint' : 'Les';
+
+  const classButtonsHtml = classes
+    .map(
+      (cls, idx) =>
+        `<button type="button" class="class-jump-btn" data-class-idx="${idx}" style="padding:0.35rem 0.7rem;border:1px solid var(--border);border-radius:999px;background:var(--bg);cursor:pointer;font-size:0.85rem;">${escapeHtml(cls.name)}</button>`
+    )
+    .join('');
+
+  const classesHtml = classes.length
+    ? classes.map((cls) => renderClassTable(cls)).join('')
+    : '<p style="color:var(--muted);margin:1rem 0 0;">Závod nemá žádné kategorie se započítávaným rankingem.</p>';
+
+  panel.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:8px;padding:1.25rem;">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:1rem;flex-wrap:wrap;">
+        <div>
+          <h2 style="margin:0 0 0.5rem;font-size:1.3rem;">
+            ${escapeHtml(ev.name || 'Detail závodu')} (#${escapeHtml(ev.oris_id || '')})
+          </h2>
+          <div style="display:flex;gap:0.5rem;flex-wrap:wrap;font-size:0.85rem;">
+            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
+              <strong>Typ:</strong> ${escapeHtml(typeLabel)}
+            </span>
+            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
+              <strong>Rozhodné datum:</strong> ${escapeHtml(ev.decision_date || '—')}
+            </span>
+            <span style="background:var(--bg);border:1px solid var(--border);padding:0.2rem 0.6rem;border-radius:6px;">
+              <strong>Snapshoty:</strong> ${escapeHtml(snapshotsFound)}
+            </span>
+          </div>
+        </div>
+        <button id="closeDetailBtn" type="button" style="padding:0.45rem 0.85rem;border:1px solid var(--border);border-radius:6px;background:var(--surface);cursor:pointer;font-weight:500;">
+          Zavřít
+        </button>
+      </div>
+
+      ${
+        classes.length
+          ? `<div style="display:flex;gap:0.45rem;flex-wrap:wrap;margin-top:1rem;padding-top:0.85rem;border-top:1px solid var(--border);">${classButtonsHtml}</div>`
+          : ''
+      }
+
+      <div id="classesList">${classesHtml}</div>
+    </div>
+  `;
+
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  document.getElementById('closeDetailBtn')?.addEventListener('click', () => {
+    panel.innerHTML = '';
   });
+
+  panel.querySelectorAll('.class-jump-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const idx = Number(btn.getAttribute('data-class-idx'));
+      const blocks = panel.querySelectorAll('.class-block');
+      blocks[idx]?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  });
+}
+
+async function openEventDetail(eventId) {
+  const id = Number(eventId);
+  if (!id) return;
+
+  const panel = ensureDetailContainer();
+  panel.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.25rem;color:var(--muted);">
+      Načítám ranking pro závod #${escapeHtml(id)}...
+    </div>
+  `;
+  panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const response = await fetch(`api/event_ranking.php?event_id=${encodeURIComponent(id)}`);
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || `HTTP ${response.status}`);
+    }
+    renderEventDetail(data);
+  } catch (err) {
+    panel.innerHTML = `
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:1.25rem;color:#cf222e;">
+        Chyba při načítání detailu rankingu: ${escapeHtml(err.message)}
+      </div>
+    `;
+  }
 }
 
 function renderEvents(events) {
@@ -71,32 +226,48 @@ function renderEvents(events) {
     .map((ev) => {
       const id = escapeHtml(ev.oris_id);
       const orisUrl = `https://oris.ceskyorientak.cz/Zavod?id=${encodeURIComponent(ev.oris_id)}`;
-      const cancelledClass = Number(ev.is_cancelled) === 1 ? ' cancelled-row' : '';
-      const selectedClass = String(ev.oris_id) === String(activeEventId ?? '') ? ' is-selected' : '';
+      const cancelledClass = Number(ev.is_cancelled) === 1 ? ' class="cancelled-row"' : '';
       const sportLabel = formatSport(ev);
-      const rankingBadge = formatRankingBadge(ev);
 
       return `
-      <tr class="event-row${cancelledClass}${selectedClass}" data-oris-id="${id}">
+      <tr data-oris-id="${id}"${cancelledClass} style="cursor:pointer;">
         <td class="nowrap">${escapeHtml(ev.event_date)}</td>
-        <td class="nowrap"><a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a></td>
-        <td>
-          <button type="button" class="event-trigger" data-event-id="${id}" title="Zobrazit kategorie a ranking">
-            <span class="event-name-text">${escapeHtml(ev.name)}</span>
-            <span class="event-action-hint">Detail →</span>
-          </button>
+        <td class="nowrap">
+          <a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a>
+          <button type="button" class="detail-trigger" data-event-id="${id}" style="margin-left:0.35rem;padding:0.15rem 0.45rem;font-size:0.78rem;border:1px solid var(--border);border-radius:5px;background:var(--bg);cursor:pointer;">Detail →</button>
         </td>
+        <td><strong>${escapeHtml(ev.name)}</strong></td>
         <td class="nowrap">${escapeHtml(ev.clubs || '—')}</td>
         <td class="nowrap">${escapeHtml(ev.region || '—')}</td>
         <td class="nowrap">${escapeHtml(sportLabel)}</td>
         <td class="nowrap">${escapeHtml(ev.discipline_name || '—')}</td>
-        <td class="nowrap">${rankingBadge}</td>
+        <td class="nowrap">${escapeHtml(ev.level_code || ev.level_name || '—')}</td>
         <td class="nowrap">${escapeHtml(ev.entries_count ?? 0)}</td>
       </tr>
     `;
     })
     .join('');
 }
+
+eventsBody?.addEventListener('click', (event) => {
+  const target = event.target;
+  if (!(target instanceof Element)) return;
+
+  if (target.closest('a.oris-link')) {
+    return;
+  }
+
+  const trigger = target.closest('[data-event-id]');
+  if (trigger) {
+    openEventDetail(trigger.getAttribute('data-event-id'));
+    return;
+  }
+
+  const row = target.closest('tr[data-oris-id]');
+  if (row) {
+    openEventDetail(row.getAttribute('data-oris-id'));
+  }
+});
 
 function applyFilter() {
   const query = (searchInput?.value ?? '').trim().toLowerCase();
@@ -114,8 +285,8 @@ function applyFilter() {
       ev.sport_id,
       formatSport(ev),
       ev.discipline_name,
-      ev.ranking_type,
-      ev.ranking_decision_date,
+      ev.level_code,
+      ev.level_name,
       ev.oris_id,
     ]
       .join(' ')
@@ -131,19 +302,8 @@ async function loadEvents() {
     statusText.textContent = 'Načítám závody...';
   }
 
-  const params = new URLSearchParams();
-  if (onlyRankingInput?.checked) {
-    params.set('has_ranking', '1');
-  }
-  const selectedType = rankingTypeSelect?.value ?? '';
-  if (selectedType) {
-    params.set('ranking_type', selectedType);
-  }
-
-  const url = `api/events.php${params.toString() ? `?${params.toString()}` : ''}`;
-
   try {
-    const response = await fetch(url);
+    const response = await fetch('api/events.php');
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}`);
     }
@@ -168,156 +328,6 @@ async function loadEvents() {
   }
 }
 
-function renderEventRankingDetail(payload) {
-  if (!detailSection || !detailTitle || !detailMeta || !detailClasses) return;
-
-  const ev = payload.event || {};
-  const rankType = ev.ranking_type || 'forest';
-  const decDate = ev.decision_date || '—';
-  const snaps = Array.isArray(payload.snapshots_found) ? payload.snapshots_found : [];
-  const autoImported = Number(payload.auto_imported_count || 0);
-
-  detailTitle.textContent = `${ev.name || 'Závod'} (#${ev.oris_id || ''})`;
-  detailMeta.innerHTML = `
-    <span class="meta-chip"><strong>Typ:</strong> ${escapeHtml(rankType === 'sprint' ? 'Sprint' : 'Les')}</span>
-    <span class="meta-chip"><strong>Rozhodné datum:</strong> ${escapeHtml(decDate)}</span>
-    <span class="meta-chip"><strong>Snapshoty:</strong> ${snaps.length ? escapeHtml(snaps.join(', ')) : 'žádný'}</span>
-    ${autoImported > 0 ? `<span class="meta-chip meta-chip--accent">Automaticky doimportováno: ${escapeHtml(autoImported)}</span>` : ''}
-  `;
-
-  const classes = Array.isArray(payload.classes) ? payload.classes : [];
-  if (!classes.length) {
-    if (categoryNav) {
-      categoryNav.hidden = true;
-      categoryNav.innerHTML = '';
-    }
-    detailClasses.innerHTML = '<p class="empty-cell">Tento závod nemá žádné rankingové kategorie.</p>';
-    detailSection.hidden = false;
-    return;
-  }
-
-  if (categoryNav) {
-    categoryNav.innerHTML = classes
-      .map((cls, idx) => {
-        const targetId = `class-anchor-${idx}-${String(cls.class_id || idx).replace(/[^a-zA-Z0-9_-]/g, '')}`;
-        return `<button type="button" class="cat-jump-btn" data-target-id="${escapeHtml(targetId)}">${escapeHtml(cls.name)}</button>`;
-      })
-      .join('');
-    categoryNav.hidden = false;
-  }
-
-  detailClasses.innerHTML = classes
-    .map((cls, idx) => {
-      const targetId = `class-anchor-${idx}-${String(cls.class_id || idx).replace(/[^a-zA-Z0-9_-]/g, '')}`;
-      const snapStatusHtml = cls.has_snapshot
-        ? `<span class="snap-ok">Snapshot #${escapeHtml(cls.snapshot_id)}</span>`
-        : `<span class="snap-missing">Ranking pro toto datum/pohlaví není k dispozici</span>`;
-
-      const rowsHtml = (cls.entries || [])
-        .map((ent) => `
-          <tr>
-            <td class="nowrap">${ent.rank_position ?? '—'}</td>
-            <td class="nowrap"><code>${escapeHtml(ent.reg_no || '—')}</code></td>
-            <td>${escapeHtml(ent.name || '—')}</td>
-            <td class="nowrap">${escapeHtml(ent.club || '—')}</td>
-            <td class="nowrap"><strong>${ent.points ?? '—'}</strong></td>
-            <td class="nowrap">${ent.ranking_coef ?? '—'}</td>
-          </tr>
-        `)
-        .join('');
-
-      return `
-        <div id="${escapeHtml(targetId)}" class="class-block">
-          <div class="class-header">
-            <h3>${escapeHtml(cls.name)} <span class="class-sub">(${escapeHtml(cls.gender || '?')} · koef. ${escapeHtml(cls.ranking_koef)})</span></h3>
-            <div>${snapStatusHtml}</div>
-          </div>
-          <div class="table-wrap">
-            <table class="events-table">
-              <thead>
-                <tr>
-                  <th>Rank. pořadí</th>
-                  <th>Reg. č.</th>
-                  <th>Jméno</th>
-                  <th>Klub</th>
-                  <th>Body</th>
-                  <th>Koef.</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${rowsHtml || '<tr><td colspan="6" class="empty-cell">Žádné přihlášky v kategorii.</td></tr>'}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      `;
-    })
-    .join('');
-
-  detailSection.hidden = false;
-  detailSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
-async function openEventDetail(eventId) {
-  if (!detailSection || !detailTitle || !detailMeta || !detailClasses) return;
-
-  activeEventId = String(eventId);
-  highlightActiveRow();
-
-  if (categoryNav) {
-    categoryNav.hidden = true;
-    categoryNav.innerHTML = '';
-  }
-
-  detailSection.hidden = false;
-  detailTitle.textContent = `Načítám závod #${eventId} a kontroluji ranking...`;
-  detailMeta.innerHTML = '';
-  detailClasses.innerHTML = '<p class="empty-cell">Probíhá načítání dat a případný automatický import rankingu...</p>';
-
-  try {
-    const resp = await fetch(`api/event_ranking.php?event_id=${encodeURIComponent(eventId)}`);
-    const data = await resp.json();
-    if (!resp.ok || data.error) {
-      throw new Error(data.error || `HTTP ${resp.status}`);
-    }
-    renderEventRankingDetail(data);
-  } catch (err) {
-    detailTitle.textContent = `Chyba u závodu #${eventId}`;
-    detailClasses.innerHTML = `<p class="snap-missing">${escapeHtml(err.message)}</p>`;
-  }
-}
-
-categoryNav?.addEventListener('click', (e) => {
-  const btn = e.target instanceof Element ? e.target.closest('button.cat-jump-btn') : null;
-  const targetId = btn?.getAttribute('data-target-id');
-  if (!targetId) return;
-  const targetEl = document.getElementById(targetId);
-  if (targetEl) {
-    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }
-});
-
-eventsBody?.addEventListener('click', (e) => {
-  if (e.target instanceof Element && e.target.closest('a')) {
-    return;
-  }
-  const row = e.target instanceof Element ? e.target.closest('tr.event-row') : null;
-  const eventId = row?.getAttribute('data-oris-id');
-  if (eventId) {
-    openEventDetail(eventId);
-  }
-});
-
-closeDetailBtn?.addEventListener('click', () => {
-  activeEventId = null;
-  highlightActiveRow();
-  if (detailSection) {
-    detailSection.hidden = true;
-  }
-});
-
 searchInput?.addEventListener('input', applyFilter);
-onlyRankingInput?.addEventListener('change', loadEvents);
-rankingTypeSelect?.addEventListener('change', loadEvents);
 
 loadEvents();
