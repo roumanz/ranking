@@ -112,78 +112,31 @@ try {
         return implode(', ', array_unique($parts));
     };
 
-    $extractClubsFromNode = static function ($node) use (&$extractClubsFromNode, $extractText): array {
-        if ($node === null || $node === '' || $node === []) {
-            return [];
-        }
+    $extractClubs = static function (array $item): string {
+        $abbrs = [];
 
-        if (is_string($node) || is_int($node) || is_float($node)) {
-            $str = trim((string) $node);
-            return $str !== '' ? [$str] : [];
-        }
+        // Hlavní klíče v ORIS getEventList: Org1, Org2, případně další OrgN
+        foreach ($item as $key => $val) {
+            if (!preg_match('/^org\d*$/i', (string) $key) && !preg_match('/^orgs$/i', (string) $key)) {
+                continue;
+            }
+            if (!is_array($val) || $val === []) {
+                continue;
+            }
 
-        if (!is_array($node)) {
-            return [];
-        }
-
-        // Pokud má uzel přímo parametr Abbr, použijeme ho přednostně
-        if (isset($node['Abbr']) && trim((string) $node['Abbr']) !== '') {
-            return [trim((string) $node['Abbr'])];
-        }
-
-        // Pokud jde o asociativní pole více klubů (např. Org1, Org2 nebo vnořené objekty)
-        if (array_keys($node) !== range(0, count($node) - 1)) {
-            $results = [];
-            foreach ($node as $key => $val) {
-                if (is_array($val)) {
-                    $results = array_merge($results, $extractClubsFromNode($val));
-                } elseif (preg_match('/^abbr$/i', (string) $key) && trim((string) $val) !== '') {
-                    $results[] = trim((string) $val);
+            if (isset($val['Abbr']) && trim((string) $val['Abbr']) !== '') {
+                $abbrs[] = trim((string) $val['Abbr']);
+            } else {
+                foreach ($val as $sub) {
+                    if (is_array($sub) && isset($sub['Abbr']) && trim((string) $sub['Abbr']) !== '') {
+                        $abbrs[] = trim((string) $sub['Abbr']);
+                    }
                 }
             }
-            if ($results !== []) {
-                return $results;
-            }
         }
 
-        $fallback = $extractText($node, ['Abbr', 'ShortName', 'Code', 'NameCZ', 'Name', 'ID']);
-        if ($fallback === '') {
-            return [];
-        }
-
-        $parts = [];
-        foreach (explode(',', $fallback) as $part) {
-            $clean = trim($part);
-            if ($clean !== '') {
-                $parts[] = $clean;
-            }
-        }
-        return $parts;
+        return implode(', ', array_unique($abbrs));
     };
-
-    $extractClubs = static function (array $item) use ($extractClubsFromNode): string {
-        $candidates = [
-            $item['Org'] ?? null,
-            $item['Orgs'] ?? null,
-            $item['Organizer'] ?? null,
-            $item['Organizers'] ?? null,
-            $item['Organiser'] ?? null,
-            $item['Organisers'] ?? null,
-            $item['Club'] ?? null,
-            $item['Clubs'] ?? null,
-        ];
-
-        $collected = [];
-        foreach ($candidates as $cand) {
-            foreach ($extractClubsFromNode($cand) as $abbr) {
-                $collected[] = $abbr;
-            }
-        }
-
-        return implode(', ', array_unique($collected));
-    };
-
-    $sampleEvent = null;
 
     if ($needsSync) {
         $orisUrl = sprintf(
@@ -210,8 +163,6 @@ try {
         $orisData = $decoded['Data'] ?? [];
 
         if (is_array($orisData) && count($orisData) > 0) {
-            $sampleEvent = $orisData[0];
-
             $upsertSql = '
                 INSERT INTO oris_events (
                     oris_id,
@@ -316,7 +267,6 @@ try {
         'dateTo' => $dateTo,
         'count' => count($events),
         'events' => $events,
-        'sampleRawEvent' => $sampleEvent,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     http_response_code(500);
