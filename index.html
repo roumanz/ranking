@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ORIS Ranking</title>
-  <link rel="stylesheet" href="css/style.css?v=11" />
+  <link rel="stylesheet" href="css/style.css?v=12" />
 </head>
 <body>
   <header class="site-header">
@@ -20,7 +20,7 @@
         id="searchInput"
         class="search-input"
         type="search"
-        placeholder="Filtrovat podle názvu, klubu nebo regionu..."
+        placeholder="Filtrovat podle názvu, klubu, oblasti, sportu..."
       />
       <span id="statusText" class="status-text">Načítám závody...</span>
     </div>
@@ -32,19 +32,23 @@
             <th>Datum</th>
             <th>ID</th>
             <th>Název závodu</th>
-            <th>Pořadatelé</th>
-            <th>Region</th>
+            <th>Poř.</th>
+            <th>Oblast</th>
+            <th>Sport</th>
+            <th>Dis.</th>
+            <th>Úroveň</th>
+            <th>Záv.</th>
           </tr>
         </thead>
         <tbody id="eventsBody">
           <tr>
-            <td colspan="5" class="empty-cell">Načítám závody...</td>
+            <td colspan="9" class="empty-cell">Načítám závody...</td>
           </tr>
         </tbody>
       </table>
     </div>
   </main>
 
-  <script type="module" src="js/app.js?v=11"></script>
+  <script type="module" src="js/app.js?v=12"></script>
 </body>
 </html>
