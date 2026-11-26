@@ -16,7 +16,7 @@ function renderEvents(events) {
   if (!eventsBody) return;
 
   if (!events.length) {
-    eventsBody.innerHTML = '<tr><td colspan="5" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
+    eventsBody.innerHTML = '<tr><td colspan="9" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
     return;
   }
 
@@ -24,14 +24,19 @@ function renderEvents(events) {
     .map((ev) => {
       const id = escapeHtml(ev.oris_id);
       const orisUrl = `https://oris.ceskyorientak.cz/akce/${encodeURIComponent(ev.oris_id)}`;
+      const cancelledClass = Number(ev.is_cancelled) === 1 ? ' class="cancelled-row"' : '';
 
       return `
-      <tr data-oris-id="${id}">
+      <tr data-oris-id="${id}"${cancelledClass}>
         <td class="nowrap">${escapeHtml(ev.event_date)}</td>
         <td class="nowrap"><a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a></td>
         <td><strong>${escapeHtml(ev.name)}</strong></td>
-        <td>${escapeHtml(ev.clubs || '—')}</td>
-        <td>${escapeHtml(ev.region || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.clubs || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.region || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.sport_name || ev.sport_id || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.discipline_name || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.level_code || ev.level_name || '—')}</td>
+        <td class="nowrap">${escapeHtml(ev.entries_count ?? 0)}</td>
       </tr>
     `;
     })
@@ -46,7 +51,19 @@ function applyFilter() {
   }
 
   const filtered = allEvents.filter((ev) => {
-    const haystack = `${ev.name} ${ev.clubs} ${ev.region} ${ev.oris_id}`.toLowerCase();
+    const haystack = [
+      ev.name,
+      ev.clubs,
+      ev.region,
+      ev.sport_name,
+      ev.sport_id,
+      ev.discipline_name,
+      ev.level_code,
+      ev.level_name,
+      ev.oris_id,
+    ]
+      .join(' ')
+      .toLowerCase();
     return haystack.includes(query);
   });
 
@@ -79,7 +96,7 @@ async function loadEvents() {
       statusText.textContent = 'Chyba při načítání';
     }
     if (eventsBody) {
-      eventsBody.innerHTML = `<tr><td colspan="5" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
+      eventsBody.innerHTML = `<tr><td colspan="9" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
