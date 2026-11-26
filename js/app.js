@@ -7,6 +7,7 @@ const statusText = document.getElementById('statusText');
 const detailSection = document.getElementById('eventDetailSection');
 const detailTitle = document.getElementById('detailTitle');
 const detailMeta = document.getElementById('detailMeta');
+const categoryNav = document.getElementById('categoryNav');
 const detailClasses = document.getElementById('detailClasses');
 const closeDetailBtn = document.getElementById('closeDetailBtn');
 
@@ -45,8 +46,9 @@ function formatRankingBadge(ev) {
     return '<span class="muted-text">—</span>';
   }
   const typeLabel = ev.ranking_type === 'sprint' ? 'Sprint' : 'Les';
+  const badgeClass = ev.ranking_type === 'sprint' ? 'ranking-pill ranking-pill--sprint' : 'ranking-pill ranking-pill--forest';
   const datePart = ev.ranking_decision_date ? ` · ${ev.ranking_decision_date}` : '';
-  return `<span class="ranking-pill">${escapeHtml(typeLabel + datePart)}</span>`;
+  return `<span class="${badgeClass}">${escapeHtml(typeLabel + datePart)}</span>`;
 }
 
 function highlightActiveRow() {
@@ -166,17 +168,6 @@ async function loadEvents() {
   }
 }
 
-function buildImportLink(rankingType, gender, decisionDate) {
-  const rankCode = rankingType === 'sprint' ? '8' : '2';
-  const params = new URLSearchParams({
-    ranking_type: rankingType || 'forest',
-    gender: gender || 'M',
-    date: decisionDate || '2026-11-30',
-    ranktype: rankCode,
-  });
-  return `api/import_ranking.php?${params.toString()}`;
-}
-
 function renderEventRankingDetail(payload) {
   if (!detailSection || !detailTitle || !detailMeta || !detailClasses) return;
 
@@ -184,62 +175,80 @@ function renderEventRankingDetail(payload) {
   const rankType = ev.ranking_type || 'forest';
   const decDate = ev.decision_date || '—';
   const snaps = Array.isArray(payload.snapshots_found) ? payload.snapshots_found : [];
+  const autoImported = Number(payload.auto_imported_count || 0);
 
   detailTitle.textContent = `${ev.name || 'Závod'} (#${ev.oris_id || ''})`;
   detailMeta.innerHTML = `
-    <span><strong>Typ:</strong> ${escapeHtml(rankType === 'sprint' ? 'Sprint' : 'Les')}</span>
-    <span><strong>Rozhodné datum:</strong> ${escapeHtml(decDate)}</span>
-    <span><strong>Snapshoty v DB:</strong> ${snaps.length ? escapeHtml(snaps.join(', ')) : 'žádný'}</span>
+    <span class="meta-chip"><strong>Typ:</strong> ${escapeHtml(rankType === 'sprint' ? 'Sprint' : 'Les')}</span>
+    <span class="meta-chip"><strong>Rozhodné datum:</strong> ${escapeHtml(decDate)}</span>
+    <span class="meta-chip"><strong>Snapshoty:</strong> ${snaps.length ? escapeHtml(snaps.join(', ')) : 'žádný'}</span>
+    ${autoImported > 0 ? `<span class="meta-chip meta-chip--accent">Automaticky doimportováno: ${escapeHtml(autoImported)}</span>` : ''}
   `;
 
   const classes = Array.isArray(payload.classes) ? payload.classes : [];
   if (!classes.length) {
+    if (categoryNav) {
+      categoryNav.hidden = true;
+      categoryNav.innerHTML = '';
+    }
     detailClasses.innerHTML = '<p class="empty-cell">Tento závod nemá žádné rankingové kategorie.</p>';
     detailSection.hidden = false;
     return;
   }
 
+  if (categoryNav) {
+    categoryNav.innerHTML = classes
+      .map((cls, idx) => {
+        const targetId = `class-anchor-${idx}-${String(cls.class_id || idx).replace(/[^a-zA-Z0-9_-]/g, '')}`;
+        return `<button type="button" class="cat-jump-btn" data-target-id="${escapeHtml(targetId)}">${escapeHtml(cls.name)}</button>`;
+      })
+      .join('');
+    categoryNav.hidden = false;
+  }
+
   detailClasses.innerHTML = classes
-    .map((cls) => {
-      const importHref = buildImportLink(rankType, cls.gender, ev.decision_date);
+    .map((cls, idx) => {
+      const targetId = `class-anchor-${idx}-${String(cls.class_id || idx).replace(/[^a-zA-Z0-9_-]/g, '')}`;
       const snapStatusHtml = cls.has_snapshot
         ? `<span class="snap-ok">Snapshot #${escapeHtml(cls.snapshot_id)}</span>`
-        : `<span class="snap-missing">Chybí snapshot v DB — <a href="${escapeHtml(importHref)}" target="_blank" rel="noopener">importovat (${escapeHtml(rankType)} / ${escapeHtml(cls.gender || '?')})</a></span>`;
+        : `<span class="snap-missing">Ranking pro toto datum/pohlaví není k dispozici</span>`;
 
       const rowsHtml = (cls.entries || [])
         .map((ent) => `
           <tr>
             <td class="nowrap">${ent.rank_position ?? '—'}</td>
-            <td class="nowrap">${escapeHtml(ent.reg_no || '—')}</td>
+            <td class="nowrap"><code>${escapeHtml(ent.reg_no || '—')}</code></td>
             <td>${escapeHtml(ent.name || '—')}</td>
             <td class="nowrap">${escapeHtml(ent.club || '—')}</td>
-            <td class="nowrap">${ent.points ?? '—'}</td>
+            <td class="nowrap"><strong>${ent.points ?? '—'}</strong></td>
             <td class="nowrap">${ent.ranking_coef ?? '—'}</td>
           </tr>
         `)
         .join('');
 
       return `
-        <div class="class-block">
+        <div id="${escapeHtml(targetId)}" class="class-block">
           <div class="class-header">
-            <h3>${escapeHtml(cls.name)} <span class="class-sub">(${escapeHtml(cls.gender || '?')}, koef. ${escapeHtml(cls.ranking_koef)})</span></h3>
+            <h3>${escapeHtml(cls.name)} <span class="class-sub">(${escapeHtml(cls.gender || '?')} · koef. ${escapeHtml(cls.ranking_koef)})</span></h3>
             <div>${snapStatusHtml}</div>
           </div>
-          <table class="events-table">
-            <thead>
-              <tr>
-                <th>Rank. pořadí</th>
-                <th>Reg. č.</th>
-                <th>Jméno</th>
-                <th>Klub</th>
-                <th>Body</th>
-                <th>Koef.</th>
-              </tr>
-            </thead>
-            <tbody>
-              ${rowsHtml || '<tr><td colspan="6" class="empty-cell">Žádné přihlášky v kategorii.</td></tr>'}
-            </tbody>
-          </table>
+          <div class="table-wrap">
+            <table class="events-table">
+              <thead>
+                <tr>
+                  <th>Rank. pořadí</th>
+                  <th>Reg. č.</th>
+                  <th>Jméno</th>
+                  <th>Klub</th>
+                  <th>Body</th>
+                  <th>Koef.</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${rowsHtml || '<tr><td colspan="6" class="empty-cell">Žádné přihlášky v kategorii.</td></tr>'}
+              </tbody>
+            </table>
+          </div>
         </div>
       `;
     })
@@ -255,10 +264,15 @@ async function openEventDetail(eventId) {
   activeEventId = String(eventId);
   highlightActiveRow();
 
+  if (categoryNav) {
+    categoryNav.hidden = true;
+    categoryNav.innerHTML = '';
+  }
+
   detailSection.hidden = false;
-  detailTitle.textContent = `Načítám závod #${eventId}...`;
+  detailTitle.textContent = `Načítám závod #${eventId} a kontroluji ranking...`;
   detailMeta.innerHTML = '';
-  detailClasses.innerHTML = '';
+  detailClasses.innerHTML = '<p class="empty-cell">Probíhá načítání dat a případný automatický import rankingu...</p>';
 
   try {
     const resp = await fetch(`api/event_ranking.php?event_id=${encodeURIComponent(eventId)}`);
@@ -272,6 +286,16 @@ async function openEventDetail(eventId) {
     detailClasses.innerHTML = `<p class="snap-missing">${escapeHtml(err.message)}</p>`;
   }
 }
+
+categoryNav?.addEventListener('click', (e) => {
+  const btn = e.target instanceof Element ? e.target.closest('button.cat-jump-btn') : null;
+  const targetId = btn?.getAttribute('data-target-id');
+  if (!targetId) return;
+  const targetEl = document.getElementById(targetId);
+  if (targetEl) {
+    targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+});
 
 eventsBody?.addEventListener('click', (e) => {
   if (e.target instanceof Element && e.target.closest('a')) {
