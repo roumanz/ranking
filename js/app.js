@@ -20,17 +20,20 @@ function renderEvents(events) {
   }
 
   eventsBody.innerHTML = events
-    .map(
-      (ev) => `
-      <tr data-oris-id="${escapeHtml(ev.oris_id)}">
+    .map((ev) => {
+      const id = escapeHtml(ev.oris_id);
+      const orisUrl = `https://oris.ceskyorientak.cz/akce/${encodeURIComponent(ev.oris_id)}`;
+
+      return `
+      <tr data-oris-id="${id}">
         <td class="nowrap">${escapeHtml(ev.event_date)}</td>
-        <td class="muted">${escapeHtml(ev.oris_id)}</td>
+        <td class="nowrap"><a class="oris-link" href="${orisUrl}" target="_blank" rel="noopener noreferrer">#${id}</a></td>
         <td><strong>${escapeHtml(ev.name)}</strong></td>
         <td>${escapeHtml(ev.clubs || '—')}</td>
         <td>${escapeHtml(ev.region || '—')}</td>
       </tr>
-    `
-    )
+    `;
+    })
     .join('');
 }
 
