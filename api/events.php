@@ -3,84 +3,86 @@ declare(strict_types=1);
 
 header('Content-Type: application/json; charset=utf-8');
 
-$config = require __DIR__ . '/../config/db.php';
-
-$dsn = sprintf(
-    'mysql:host=%s;dbname=%s;charset=%s',
-    $config['host'],
-    $config['dbname'],
-    $config['charset']
-);
-
 try {
+    $configPath = __DIR__ . '/../config/db.php';
+    if (!file_exists($configPath)) {
+        throw new RuntimeException('Chybí soubor config/db.php na serveru.');
+    }
+
+    $config = require $configPath;
+
+    $dsn = sprintf(
+        'mysql:host=%s;dbname=%s;charset=%s',
+        $config['host'],
+        $config['dbname'],
+        $config['charset']
+    );
+
     $pdo = new PDO($dsn, $config['user'], $config['pass'], [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
-} catch (PDOException $e) {
-    http_response_code(500);
-    echo json_encode(['error' => 'Chyba připojení k databázi.'], JSON_UNESCAPED_UNICODE);
-    exit;
-}
 
-$today = new DateTimeImmutable('today');
-$dateFrom = $today->modify('-31 days')->format('Y-m-d');
-$dateTo = $today->modify('+31 days')->format('Y-m-d');
+    $today = new DateTimeImmutable('today');
+    $dateFrom = $today->modify('-31 days')->format('Y-m-d');
+    $dateTo = $today->modify('+31 days')->format('Y-m-d');
 
-$selectSql = '
-    SELECT oris_id, name, event_date, sport_id, level_name, region, clubs, ranking_decision_date, updated_at
-    FROM oris_events
-    WHERE event_date BETWEEN :date_from AND :date_to
-    ORDER BY event_date ASC, name ASC
-';
-
-$stmt = $pdo->prepare($selectSql);
-$stmt->execute([
-    ':date_from' => $dateFrom,
-    ':date_to' => $dateTo,
-]);
-$events = $stmt->fetchAll();
-
-// Zjistíme stáří nejnovějšího záznamu v rozsahu
-$needsSync = count($events) === 0;
-if (!$needsSync) {
-    $maxUpdatedStmt = $pdo->prepare('
-        SELECT MAX(updated_at) AS last_update
+    $selectSql = '
+        SELECT oris_id, name, event_date, sport_id, level_name, region, clubs, ranking_decision_date, updated_at
         FROM oris_events
         WHERE event_date BETWEEN :date_from AND :date_to
-    ');
-    $maxUpdatedStmt->execute([
+        ORDER BY event_date ASC, name ASC
+    ';
+
+    $stmt = $pdo->prepare($selectSql);
+    $stmt->execute([
         ':date_from' => $dateFrom,
         ':date_to' => $dateTo,
     ]);
-    $lastUpdateStr = $maxUpdatedStmt->fetchColumn();
+    $events = $stmt->fetchAll();
 
-    if ($lastUpdateStr) {
-        $lastUpdate = new DateTimeImmutable((string) $lastUpdateStr);
-        $ageSeconds = time() - $lastUpdate->getTimestamp();
-        // Automatická aktualizace jednou za hodinu (3600 s)
-        if ($ageSeconds > 3600) {
-            $needsSync = true;
+    $needsSync = count($events) === 0;
+    if (!$needsSync) {
+        $maxUpdatedStmt = $pdo->prepare('
+            SELECT MAX(updated_at) AS last_update
+            FROM oris_events
+            WHERE event_date BETWEEN :date_from AND :date_to
+        ');
+        $maxUpdatedStmt->execute([
+            ':date_from' => $dateFrom,
+            ':date_to' => $dateTo,
+        ]);
+        $lastUpdateStr = $maxUpdatedStmt->fetchColumn();
+
+        if ($lastUpdateStr) {
+            $lastUpdate = new DateTimeImmutable((string) $lastUpdateStr);
+            if ((time() - $lastUpdate->getTimestamp()) > 3600) {
+                $needsSync = true;
+            }
         }
     }
-}
 
-if ($needsSync) {
-    $orisUrl = sprintf(
-        'https://oris.ceskyorientak.cz/API/?format=json&method=getEventList&datefrom=%s&dateto=%s',
-        urlencode($dateFrom),
-        urlencode($dateTo)
-    );
+    if ($needsSync) {
+        $orisUrl = sprintf(
+            'https://oris.ceskyorientak.cz/API/?format=json&method=getEventList&datefrom=%s&dateto=%s',
+            urlencode($dateFrom),
+            urlencode($dateTo)
+        );
 
-    $ctx = stream_context_create([
-        'http' => [
-            'timeout' => 15,
-            'user_agent' => 'o-tools-ranking/1.0',
-        ],
-    ]);
+        $ch = curl_init($orisUrl);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT => 15,
+            CURLOPT_USERAGENT => 'o-tools-ranking/1.0',
+        ]);
+        $rawJson = curl_exec($ch);
+        $curlErr = curl_error($ch);
+        curl_close($ch);
 
-    $rawJson = @file_get_contents($orisUrl, false, $ctx);
-    if ($rawJson !== false) {
+        if ($rawJson === false) {
+            throw new RuntimeException('Chyba komunikace s ORIS API: ' . $curlErr);
+        }
+
         $decoded = json_decode($rawJson, true);
         $orisData = $decoded['Data'] ?? [];
 
@@ -137,11 +139,16 @@ if ($needsSync) {
             $events = $stmt->fetchAll();
         }
     }
-}
 
-echo json_encode([
-    'dateFrom' => $dateFrom,
-    'dateTo' => $dateTo,
-    'count' => count($events),
-    'events' => $events,
-], JSON_UNESCAPED_UNICODE);
+    echo json_encode([
+        'dateFrom' => $dateFrom,
+        'dateTo' => $dateTo,
+        'count' => count($events),
+        'events' => $events,
+    ], JSON_UNESCAPED_UNICODE);
+} catch (Throwable $e) {
+    http_response_code(500);
+    echo json_encode([
+        'error' => $e->getMessage(),
+    ], JSON_UNESCAPED_UNICODE);
+}
