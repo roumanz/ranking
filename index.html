@@ -3,33 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ORIS Ranking — o-tools.rouman.eu</title>
+  <title>ORIS Ranking — Přehled závodů</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
   <header class="site-header">
-    <div class="container">
-      <h1>ORIS Ranking</h1>
-      <p class="subtitle">Přehled závodů a řazení přihlášených podle rankingu k rozhodnému datu</p>
+    <div class="container header-row">
+      <div>
+        <h1>ORIS Ranking</h1>
+        <p class="subtitle">Závody v rozmezí týden zpět až měsíc dopředu</p>
+      </div>
+      <button id="refreshBtn" class="btn" type="button">Načíst z ORISu</button>
     </div>
   </header>
 
   <main class="container">
-    <section class="status-card">
-      <span class="badge">Deploy OK</span>
-      <h2>Úvodní kostra připravena</h2>
-      <p>
-        Tato stránka běží na <code>o-tools.rouman.eu/ranking</code>. Jakmile ověříš, že se změny
-        z GitHubu správně nahrávají přes FTP, napojíme na ni ORIS API, seznam závodů a řazení
-        podle rozhodného data.
-      </p>
-    </section>
+    <div class="toolbar">
+      <input
+        id="searchInput"
+        class="search-input"
+        type="search"
+        placeholder="Filtrovat podle názvu, klubu nebo regionu..."
+      />
+      <span id="statusText" class="status-text">Načítám závody...</span>
+    </div>
+
+    <div class="table-wrap">
+      <table class="events-table">
+        <thead>
+          <tr>
+            <th>Datum</th>
+            <th>ID</th>
+            <th>Název závodu</th>
+            <th>Pořadatelé</th>
+            <th>Region</th>
+          </tr>
+        </thead>
+        <tbody id="eventsBody">
+          <tr>
+            <td colspan="5" class="empty-cell">Načítám data...</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
   </main>
 
-  <footer class="site-footer">
-    <div class="container">
-      <small>Projekt ranking • o-tools.rouman.eu/ranking</small>
-    </div>
-  </footer>
+  <script type="module" src="js/app.js"></script>
 </body>
 </html>
