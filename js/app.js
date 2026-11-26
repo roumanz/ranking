@@ -38,6 +38,22 @@ function formatGenderLabel(gender) {
   return '—';
 }
 
+function isRankingEvent(ev) {
+  const levelCode = String(ev.level_code ?? '').trim().toUpperCase();
+  const levelName = String(ev.level_name ?? '').trim().toLowerCase();
+  const discName = String(ev.discipline_name ?? '').trim().toLowerCase();
+  const name = String(ev.name ?? '').trim().toLowerCase();
+
+  if (levelCode === 'SEM' || levelName.includes('seminář') || levelName.includes('školení') || levelName.includes('workshop')) {
+    return false;
+  }
+  if (discName === 'sem' || name.startsWith('metodický seminář') || name.startsWith('školení ') || name.startsWith('workshop ')) {
+    return false;
+  }
+
+  return true;
+}
+
 function ensureDetailContainer() {
   if (detailContainer) return detailContainer;
 
@@ -72,7 +88,6 @@ function renderClassTable(cls) {
               <td class="nowrap">${escapeHtml(entry.rank_position ?? '—')}</td>
               <td class="nowrap">${escapeHtml(entry.reg_no || '—')}</td>
               <td>${escapeHtml(entry.name || '—')}</td>
-              <td class="nowrap">${escapeHtml(entry.club || '—')}</td>
               <td class="nowrap">${escapeHtml(entry.points ?? '—')}</td>
               <td class="nowrap">${escapeHtml(entry.ranking_coef ?? '—')}</td>
             </tr>
@@ -81,7 +96,7 @@ function renderClassTable(cls) {
         .join('')
     : `
       <tr>
-        <td colspan="7" class="empty-cell">Žádní přihlášení závodníci v této kategorii.</td>
+        <td colspan="6" class="empty-cell">Žádní přihlášení závodníci v této kategorii.</td>
       </tr>
     `;
 
@@ -102,7 +117,6 @@ function renderClassTable(cls) {
               <th class="nowrap">RANK. POŘADÍ</th>
               <th class="nowrap">REG. Č.</th>
               <th>JMÉNO</th>
-              <th class="nowrap">KLUB</th>
               <th class="nowrap">BODY</th>
               <th class="nowrap">KOEF.</th>
             </tr>
@@ -270,13 +284,15 @@ eventsBody?.addEventListener('click', (event) => {
 });
 
 function applyFilter() {
+  const baseEvents = allEvents.filter(isRankingEvent);
   const query = (searchInput?.value ?? '').trim().toLowerCase();
+
   if (!query) {
-    renderEvents(allEvents);
+    renderEvents(baseEvents);
     return;
   }
 
-  const filtered = allEvents.filter((ev) => {
+  const filtered = baseEvents.filter((ev) => {
     const haystack = [
       ev.name,
       ev.clubs,
@@ -314,8 +330,9 @@ async function loadEvents() {
     }
 
     allEvents = Array.isArray(data.events) ? data.events : [];
+    const rankingCount = allEvents.filter(isRankingEvent).length;
     if (statusText) {
-      statusText.textContent = `Zobrazeno ${allEvents.length} závodů (${data.dateFrom} až ${data.dateTo})`;
+      statusText.textContent = `Zobrazeno ${rankingCount} rankingových závodů (${data.dateFrom} až ${data.dateTo})`;
     }
     applyFilter();
   } catch (err) {
