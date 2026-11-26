@@ -4,69 +4,82 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ORIS Ranking</title>
-  <link rel="stylesheet" href="css/style.css?v=14" />
+  <link rel="stylesheet" href="css/style.css?v=15" />
 </head>
 <body>
   <header class="site-header">
-    <div class="container">
-      <h1>ORIS Ranking</h1>
-      <p class="subtitle">Závody OB v rozmezí měsíc zpět až měsíc dopředu</p>
+    <div class="container header-inner">
+      <div>
+        <div class="brand-badge">ČSOB · ORIS</div>
+        <h1>ORIS Ranking</h1>
+        <p class="subtitle">Závody OB v rozmezí měsíc zpět až měsíc dopředu</p>
+      </div>
+      <a class="header-link" href="api/import_ranking.php" target="_blank" rel="noopener">
+        Správa / import CSV
+      </a>
     </div>
   </header>
 
-  <main class="container">
-    <div class="toolbar">
-      <input
-        id="searchInput"
-        class="search-input"
-        type="search"
-        placeholder="Filtrovat podle názvu, klubu, oblasti, disciplíny..."
-      />
-      <label class="filter-check">
-        <input id="onlyRankingInput" type="checkbox" checked />
-        Pouze rankingové závody
-      </label>
-      <select id="rankingTypeSelect" class="filter-select">
-        <option value="">Všechny typy rankingu</option>
-        <option value="forest">Lesní (forest)</option>
-        <option value="sprint">Sprintový (sprint)</option>
-      </select>
-      <span id="statusText" class="status-text">Načítám závody...</span>
-    </div>
-
-    <div class="table-wrap">
-      <table class="events-table">
-        <thead>
-          <tr>
-            <th>Datum</th>
-            <th>ID</th>
-            <th>Název závodu</th>
-            <th>Poř.</th>
-            <th>Oblast</th>
-            <th>Sport</th>
-            <th>Dis.</th>
-            <th>Ranking</th>
-            <th>Záv.</th>
-          </tr>
-        </thead>
-        <tbody id="eventsBody">
-          <tr>
-            <td colspan="9" class="empty-cell">Načítám závody...</td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
-
-    <section id="eventDetailSection" class="detail-section" hidden>
-      <div class="detail-header">
-        <h2 id="detailTitle">Detail závodu</h2>
-        <button id="closeDetailBtn" type="button">Zavřít</button>
+  <main class="container main-content">
+    <div class="card toolbar-card">
+      <div class="toolbar">
+        <input
+          id="searchInput"
+          class="search-input"
+          type="search"
+          placeholder="Filtrovat podle názvu, klubu, oblasti, disciplíny..."
+        />
+        <label class="filter-check">
+          <input id="onlyRankingInput" type="checkbox" checked />
+          <span>Pouze rankingové závody</span>
+        </label>
+        <select id="rankingTypeSelect" class="filter-select" aria-label="Typ rankingu">
+          <option value="">Všechny typy rankingu</option>
+          <option value="forest">Lesní (forest)</option>
+          <option value="sprint">Sprintový (sprint)</option>
+        </select>
+        <span id="statusText" class="status-text">Načítám závody...</span>
       </div>
-      <div id="detailMeta" class="detail-meta"></div>
+    </div>
+
+    <div class="card table-card">
+      <div class="table-wrap">
+        <table class="events-table">
+          <thead>
+            <tr>
+              <th>Datum</th>
+              <th>ID</th>
+              <th>Název závodu</th>
+              <th>Poř.</th>
+              <th>Oblast</th>
+              <th>Sport</th>
+              <th>Dis.</th>
+              <th>Ranking</th>
+              <th>Záv.</th>
+            </tr>
+          </thead>
+          <tbody id="eventsBody">
+            <tr>
+              <td colspan="9" class="empty-cell">Načítám závody...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <section id="eventDetailSection" class="card detail-section" hidden>
+      <div class="detail-header">
+        <div>
+          <h2 id="detailTitle">Detail závodu</h2>
+          <div id="detailMeta" class="detail-meta"></div>
+        </div>
+        <button id="closeDetailBtn" class="btn-secondary" type="button">Zavřít</button>
+      </div>
+      <div id="categoryNav" class="category-nav" hidden></div>
       <div id="detailClasses"></div>
     </section>
   </main>
 
-  <script type="module" src="js/app.js?v=14"></script>
+  <script type="module" src="js/app.js?v=15"></script>
 </body>
 </html>
