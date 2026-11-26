@@ -27,8 +27,6 @@ $today = new DateTimeImmutable('today');
 $dateFrom = $today->modify('-31 days')->format('Y-m-d');
 $dateTo = $today->modify('+31 days')->format('Y-m-d');
 
-$forceRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
-
 $selectSql = '
     SELECT oris_id, name, event_date, sport_id, level_name, region, clubs, ranking_decision_date, updated_at
     FROM oris_events
@@ -43,7 +41,31 @@ $stmt->execute([
 ]);
 $events = $stmt->fetchAll();
 
-if ($forceRefresh || count($events) === 0) {
+// Zjistíme stáří nejnovějšího záznamu v rozsahu
+$needsSync = count($events) === 0;
+if (!$needsSync) {
+    $maxUpdatedStmt = $pdo->prepare('
+        SELECT MAX(updated_at) AS last_update
+        FROM oris_events
+        WHERE event_date BETWEEN :date_from AND :date_to
+    ');
+    $maxUpdatedStmt->execute([
+        ':date_from' => $dateFrom,
+        ':date_to' => $dateTo,
+    ]);
+    $lastUpdateStr = $maxUpdatedStmt->fetchColumn();
+
+    if ($lastUpdateStr) {
+        $lastUpdate = new DateTimeImmutable((string) $lastUpdateStr);
+        $ageSeconds = time() - $lastUpdate->getTimestamp();
+        // Automatická aktualizace jednou za hodinu (3600 s)
+        if ($ageSeconds > 3600) {
+            $needsSync = true;
+        }
+    }
+}
+
+if ($needsSync) {
     $orisUrl = sprintf(
         'https://oris.ceskyorientak.cz/API/?format=json&method=getEventList&datefrom=%s&dateto=%s',
         urlencode($dateFrom),
@@ -74,7 +96,8 @@ if ($forceRefresh || count($events) === 0) {
                     sport_id = VALUES(sport_id),
                     level_name = VALUES(level_name),
                     region = VALUES(region),
-                    clubs = VALUES(clubs)
+                    clubs = VALUES(clubs),
+                    updated_at = CURRENT_TIMESTAMP
             ';
             $upsertStmt = $pdo->prepare($upsertSql);
 
