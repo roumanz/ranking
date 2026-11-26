@@ -3,29 +3,32 @@ declare(strict_types=1);
 
 header('Content-Type: text/html; charset=utf-8');
 
-// -----------------------------------------------------------------------------
-// 1. Připojení k databázi (uprav dle svého db.php, pokud ho už máš)
-// -----------------------------------------------------------------------------
-if (file_exists(__DIR__ . '/../config/db.php')) {
-    require_once __DIR__ . '/../config/db.php';
+$dbConfigFile = __DIR__ . '/../config/db.php';
+if (!file_exists($dbConfigFile)) {
+    throw new RuntimeException('Chybí konfigurační soubor config/db.php.');
 }
 
-if (!isset($pdo) || !($pdo instanceof PDO)) {
-    $dbHost = 'md432.wedos.net';
-    $dbName = 'd31903_ranking';
-    $dbUser = 'a31903_ranking'; // doplň svého DB uživatele
-    $dbPass = '';              // doplň své DB heslo
-
-    $pdo = new PDO(
-        "mysql:host={$dbHost};dbname={$dbName};charset=utf8mb4",
-        $dbUser,
-        $dbPass,
-        [
-            PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-            PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-        ]
-    );
+$cfg = require $dbConfigFile;
+if (!is_array($cfg)) {
+    throw new RuntimeException('Soubor config/db.php musí vracet pole s parametry připojení.');
 }
+
+$dsn = sprintf(
+    'mysql:host=%s;dbname=%s;charset=%s',
+    $cfg['host'] ?? 'md432.wedos.net',
+    $cfg['dbname'] ?? 'd31903_ranking',
+    $cfg['charset'] ?? 'utf8mb4'
+);
+
+$pdo = new PDO(
+    $dsn,
+    (string) ($cfg['user'] ?? ''),
+    (string) ($cfg['pass'] ?? ''),
+    [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]
+);
 
 // -----------------------------------------------------------------------------
 // 2. Pomocné funkce
