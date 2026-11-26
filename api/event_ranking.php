@@ -29,22 +29,28 @@ try {
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
 
-    $fetchJson = static function (string $url): array {
+    $fetchText = static function (string $url, int $timeout = 25): string {
         $ch = curl_init($url);
         curl_setopt_array($ch, [
             CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_TIMEOUT => 20,
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_TIMEOUT => $timeout,
             CURLOPT_USERAGENT => 'o-tools-ranking/1.0',
         ]);
-        $rawJson = curl_exec($ch);
+        $raw = curl_exec($ch);
         $curlErr = curl_error($ch);
+        $code = (int) curl_getinfo($ch, CURLINFO_HTTP_CODE);
         curl_close($ch);
 
-        if ($rawJson === false) {
-            throw new RuntimeException('Chyba komunikace s ORIS API: ' . $curlErr);
+        if ($raw === false || $code >= 400) {
+            throw new RuntimeException("Chyba komunikace s ORIS API (HTTP {$code}): {$curlErr}");
         }
 
-        $decoded = json_decode($rawJson, true);
+        return (string) $raw;
+    };
+
+    $fetchJson = static function (string $url) use ($fetchText): array {
+        $decoded = json_decode($fetchText($url), true);
         return is_array($decoded) ? $decoded : [];
     };
 
@@ -71,22 +77,146 @@ try {
         return null;
     };
 
-    // 1. Závod v DB (pokud existuje) + detail závodu z ORISu
-    $evStmt = $pdo->prepare('SELECT * FROM oris_events WHERE oris_id = :oris_id LIMIT 1');
-    $evStmt->execute([':oris_id' => $eventId]);
-    $dbEvent = $evStmt->fetch() ?: null;
+    $parseRankingCsv = static function (string $csvContent): array {
+        $csvContent = preg_replace('/^\xEF\xBB\xBF/', '', $csvContent) ?? $csvContent;
+        $csvContent = str_replace(["\r\n", "\r"], "\n", $csvContent);
 
-    $detailResp = $fetchJson(sprintf('https://oris.ceskyorientak.cz/API/?format=json&method=getEvent&id=%d', $eventId));
-    $detailData = $detailResp['Data'] ?? [];
-    if (!is_array($detailData) || $detailData === []) {
+        $stream = fopen('php://memory', 'r+');
+        if ($stream === false) {
+            throw new RuntimeException('Nelze otevřít paměťový stream pro CSV.');
+        }
+        fwrite($stream, $csvContent);
+        rewind($stream);
+
+        $header = fgetcsv($stream, 0, ';', '"', '\\');
+        if (!$header || count($header) < 6) {
+            fclose($stream);
+            return [];
+        }
+
+        $map = [];
+        foreach ($header as$idx => $colName) {$norm = mb_strtolower(trim((string) $colName), 'UTF-8');$map[$norm] =$idx;
+        }
+
+        $idxPos   =$map['poradi'] ?? 0;
+        $idxLast  =$map['prijmeni'] ?? 1;
+        $idxFirst =$map['jmeno'] ?? 2;
+        $idxReg   = $map['reg. c.'] ?? ($map['reg.c.'] ?? 3);
+        $idxPts   =$map['body'] ?? 4;
+        $idxCoef  = $map['rank.c'] ?? ($map['rank.c.'] ?? 5);
+
+        $rows = [];
+        while (($line = fgetcsv($stream, 0, ';', '"', '\\')) !== false) {
+            if ($line === [null] || count($line) < 4) {
+                continue;
+            }$regNo = strtoupper(trim((string) ($line[$idxReg] ?? '')));
+            if ($regNo === '') {
+                continue;
+            }$posRaw  = trim((string) ($line[$idxPos] ?? '0'));
+            $ptsRaw  = preg_replace('/\s+/', '', trim((string) ($line[$idxPts] ?? '0')));$coefRaw = str_replace(',', '.', trim((string) ($line[$idxCoef] ?? '')));
+
+            $rows[] = [
+                'reg_no'        => $regNo,
+                'last_name'     => trim((string) ($line[$idxLast] ?? '')),
+                'first_name'    => trim((string) ($line[$idxFirst] ?? '')),
+                'rank_position' => max(0, (int) $posRaw),
+                'points'        => (int) ($ptsRaw !== '' ? $ptsRaw : 0),
+                'ranking_coef'  => ($coefRaw !== '' && is_numeric($coefRaw)) ? (float)$coefRaw : null,
+            ];
+        }
+
+        fclose($stream);
+        return $rows;
+    };
+
+    $autoImportSnapshot = static function (
+        PDO $pdo,
+        string $rankingType,
+        string $gender,
+        string $decisionDate
+    ) use ($fetchText,$parseRankingCsv): ?array {
+        $rankTypeCode = ($rankingType === 'sprint') ? 8 : 2;
+        $sourceUrl = sprintf(
+            'https://oris.ceskyorientak.cz/ranking_export?date=%s&sport=1&gender=%s&ranktype=%d&csv=1',
+            urlencode($decisionDate),
+            urlencode($gender),$rankTypeCode
+        );
+
+        $csvContent =$fetchText($sourceUrl);$entries = $parseRankingCsv($csvContent);
+        if (count($entries) === 0) {
+            return null;
+        }
+
+        $pdo->beginTransaction();
+        try {
+            $stmtSnap = $pdo->prepare('
+                INSERT INTO ranking_snapshots (ranking_type, gender, decision_date, source_url, imported_at)
+                VALUES (:ranking_type, :gender, :decision_date, :source_url, NOW())
+                ON DUPLICATE KEY UPDATE
+                    source_url = VALUES(source_url),
+                    imported_at = NOW(),
+                    id = LAST_INSERT_ID(id)
+            ');$stmtSnap->execute([
+                ':ranking_type'  => $rankingType,
+                ':gender'        => $gender,
+                ':decision_date' => $decisionDate,
+                ':source_url'    => $sourceUrl,
+            ]);
+
+            $snapshotId = (int)$pdo->lastInsertId();
+
+            $stmtDel =$pdo->prepare('DELETE FROM ranking_entries WHERE snapshot_id = :snapshot_id');
+            $stmtDel->execute([':snapshot_id' =>$snapshotId]);
+
+            $stmtIns =$pdo->prepare('
+                INSERT INTO ranking_entries
+                    (snapshot_id, reg_no, last_name, first_name, rank_position, points, ranking_coef)
+                VALUES
+                    (:snapshot_id, :reg_no, :last_name, :first_name, :rank_position, :points, :ranking_coef)
+            ');
+
+            foreach ($entries as $entry) {$stmtIns->execute([
+                    ':snapshot_id'   => $snapshotId,
+                    ':reg_no'        => $entry['reg_no'],
+                    ':last_name'     => $entry['last_name'],
+                    ':first_name'    => $entry['first_name'],
+                    ':rank_position' => $entry['rank_position'],
+                    ':points'        => $entry['points'],
+                    ':ranking_coef'  => $entry['ranking_coef'],
+                ]);
+            }
+
+            $pdo->commit();
+
+            return [
+                'id'            => $snapshotId,
+                'ranking_type'  => $rankingType,
+                'gender'        => $gender,
+                'decision_date' => $decisionDate,
+                'auto_imported' => true,
+            ];
+        } catch (Throwable $e) {
+            if ($pdo->inTransaction()) {$pdo->rollBack();
+            }
+            throw $e;
+        }
+    };
+
+    // 1. Závod v DB + detail závodu z ORISu
+    $evStmt =$pdo->prepare('SELECT * FROM oris_events WHERE oris_id = :oris_id LIMIT 1');
+    $evStmt->execute([':oris_id' =>$eventId]);
+    $dbEvent =$evStmt->fetch() ?: null;
+
+    $detailResp = $fetchJson(sprintf('https://oris.ceskyorientak.cz/API/?format=json&method=getEvent&id=%d',$eventId));
+    $detailData =$detailResp['Data'] ?? [];
+    if (!is_array($detailData) ||$detailData === []) {
         throw new RuntimeException("Nepodařilo se načíst detail závodu #{$eventId} z ORISu.");
     }
 
-    $eventName = (string) ($detailData['Name'] ?? ($dbEvent['name'] ?? ''));
-    $eventDate = substr((string) ($detailData['Date'] ?? ($dbEvent['event_date'] ?? '')), 0, 10);
+    $eventName = (string) ($detailData['Name'] ?? ($dbEvent['name'] ?? ''));$eventDate = substr((string) ($detailData['Date'] ?? ($dbEvent['event_date'] ?? '')), 0, 10);
 
     $discRaw = $detailData['Discipline'] ?? ($dbEvent['discipline_name'] ?? '');
-    $discText = mb_strtolower(trim(is_array($discRaw) ? json_encode($discRaw, JSON_UNESCAPED_UNICODE) : (string) $discRaw), 'UTF-8');
+    $discText = mb_strtolower(trim(is_array($discRaw) ? json_encode($discRaw, JSON_UNESCAPED_UNICODE) : (string)$discRaw), 'UTF-8');
     $rankingType = (!empty($dbEvent['ranking_type']))
         ? (string) $dbEvent['ranking_type']
         : ((str_contains($discText, 'sprint') || str_contains($discText, 'temp')) ? 'sprint' : 'forest');
@@ -96,10 +226,11 @@ try {
         ?? $normalizeLastDayOfMonth($eventDate);
 
     // 2. Rankingové kategorie (Ranking = "1" nebo RankingKoef > 0)
-    $rawClasses = $detailData['Classes'] ?? [];
-    $rankingClasses = [];
+    $rawClasses =$detailData['Classes'] ?? [];
+    $rankingClasses = [];$neededGenders = [];
+
     if (is_array($rawClasses)) {
-        foreach ($rawClasses as $cls) {
+        foreach ($rawClasses as$cls) {
             if (!is_array($cls)) {
                 continue;
             }
@@ -108,72 +239,75 @@ try {
                 continue;
             }
 
-            $rankFlag = trim((string) ($cls['Ranking'] ?? '0'));
-            $coefRaw = str_replace(',', '.', trim((string) ($cls['RankingKoef'] ?? '0')));
-            $coefVal = is_numeric($coefRaw) ? (float) $coefRaw : 0.0;
+            $rankFlag = trim((string) ($cls['Ranking'] ?? '0'));$coefRaw = str_replace(',', '.', trim((string) ($cls['RankingKoef'] ?? '0')));$coefVal = is_numeric($coefRaw) ? (float)$coefRaw : 0.0;
 
-            if ($rankFlag !== '1' && $coefVal <= 0.0) {
+            if ($rankFlag !== '1' &&$coefVal <= 0.0) {
                 continue;
             }
 
-            $classDef = is_array($cls['ClassDefinition'] ?? null) ? $cls['ClassDefinition'] : [];
-            $gender = $mapGender((string) ($classDef['Gender'] ?? ''));
+            $classDef = is_array($cls['ClassDefinition'] ?? null) ? $cls['ClassDefinition'] : [];$gender = $mapGender((string) ($classDef['Gender'] ?? ''));
+            if ($gender !== null) {
+                $neededGenders[$gender] = true;
+            }
 
             $rankingClasses[$classId] = [
-                'class_id' => $classId,
-                'name' => (string) ($cls['Name'] ?? ''),
-                'gender' => $gender,
+                'class_id'     => $classId,
+                'name'         => (string) ($cls['Name'] ?? ''),
+                'gender'       => $gender,
                 'ranking_koef' => $coefVal,
-                'entries' => [],
+                'entries'      => [],
             ];
         }
     }
 
-    // 3. Načtení snapshotů z DB pro daný ranking_type a decision_date
+    // 3. Načtení snapshotů z DB + automatický import chybějících pohlaví
     $snapshotsByGender = [];
-    $entriesBySnapshotId = [];
+    $entriesBySnapshotId = [];$autoImportedCount = 0;
 
-    if ($decisionDate !== null && count($rankingClasses) > 0) {
-        $snapStmt = $pdo->prepare('
+    if ($decisionDate !== null && count($rankingClasses) > 0) {$snapStmt = $pdo->prepare('
             SELECT id, ranking_type, gender, decision_date, imported_at
             FROM ranking_snapshots
             WHERE ranking_type = :ranking_type
               AND decision_date = :decision_date
-        ');
-        $snapStmt->execute([
-            ':ranking_type' => $rankingType,
+        ');$snapStmt->execute([
+            ':ranking_type'  => $rankingType,
             ':decision_date' => $decisionDate,
         ]);
 
-        $entryStmt = $pdo->prepare('
+        foreach ($snapStmt->fetchAll() as $snap) {$snapshotsByGender[(string) $snap['gender']] =$snap;
+        }
+
+        foreach (array_keys($neededGenders) as$g) {
+            if (!isset($snapshotsByGender[$g])) {
+                $importedSnap =$autoImportSnapshot($pdo,$rankingType, $g,$decisionDate);
+                if ($importedSnap !== null) {$snapshotsByGender[$g] =$importedSnap;
+                    $autoImportedCount++;
+                }
+            }
+        }
+
+        $entryStmt =$pdo->prepare('
             SELECT reg_no, last_name, first_name, rank_position, points, ranking_coef
             FROM ranking_entries
             WHERE snapshot_id = :snapshot_id
         ');
 
-        foreach ($snapStmt->fetchAll() as $snap) {
-            $g = (string) $snap['gender'];
-            $sid = (int) $snap['id'];
-            $snapshotsByGender[$g] = $snap;
-
-            $entryStmt->execute([':snapshot_id' => $sid]);
-            $map = [];
-            foreach ($entryStmt->fetchAll() as $er) {
-                $reg = strtoupper(trim((string) $er['reg_no']));
-                if ($reg !== '') {
-                    $map[$reg] = $er;
+        foreach ($snapshotsByGender as$g => $snap) {$sid = (int) $snap['id'];$entryStmt->execute([':snapshot_id' => $sid]);$map = [];
+            foreach ($entryStmt->fetchAll() as$er) {
+                $reg = strtoupper(trim((string)$er['reg_no']));
+                if ($reg !== '') {$map[$reg] =$er;
                 }
             }
-            $entriesBySnapshotId[$sid] = $map;
+            $entriesBySnapshotId[$sid] =$map;
         }
     }
 
     // 4. Přihlášky ze getEventEntries a párování přes ClassID + registrační číslo
-    $entriesResp = $fetchJson(sprintf('https://oris.ceskyorientak.cz/API/?format=json&method=getEventEntries&eventid=%d', $eventId));
-    $rawEntries = $entriesResp['Data'] ?? [];
+    $entriesResp = $fetchJson(sprintf('https://oris.ceskyorientak.cz/API/?format=json&method=getEventEntries&eventid=%d',$eventId));
+    $rawEntries =$entriesResp['Data'] ?? [];
 
     if (is_array($rawEntries)) {
-        foreach ($rawEntries as $ent) {
+        foreach ($rawEntries as$ent) {
             if (!is_array($ent)) {
                 continue;
             }
@@ -185,59 +319,58 @@ try {
 
             $gender = $rankingClasses[$classId]['gender'];
             $snap = ($gender !== null && isset($snapshotsByGender[$gender])) ? $snapshotsByGender[$gender] : null;
-            $rankMap = ($snap !== null) ? ($entriesBySnapshotId[(int) $snap['id']] ?? []) : [];
+            $rankMap = ($snap !== null) ? ($entriesBySnapshotId[(int)$snap['id']] ?? []) : [];
 
             $regNo = strtoupper(trim((string) ($ent['RegNumber'] ?? $ent['RegNo'] ?? $ent['Reg. c.'] ?? '')));
             $matched = ($regNo !== '' && isset($rankMap[$regNo])) ? $rankMap[$regNo] : null;
 
             $competitorName = trim((string) ($ent['Name'] ?? ''));
-            if ($competitorName === '') {
-                $competitorName = trim(((string) ($ent['LastName'] ?? '')) . ' ' . ((string) ($ent['FirstName'] ?? '')));
+            if ($competitorName === '') {$competitorName = trim(((string) ($ent['LastName'] ?? '')) . ' ' . ((string) ($ent['FirstName'] ?? '')));
             }
 
             $clubAbbr = trim((string) ($ent['ClubAbbr'] ?? $ent['Club'] ?? ''));
 
             $rankingClasses[$classId]['entries'][] = [
-                'reg_no' => $regNo,
-                'name' => $competitorName,
-                'club' => $clubAbbr,
-                'matched' => $matched !== null,
+                'reg_no'        => $regNo,
+                'name'          => $competitorName,
+                'club'          => $clubAbbr,
+                'matched'       => $matched !== null,
                 'rank_position' => $matched !== null ? (int) $matched['rank_position'] : null,
-                'points' => $matched !== null ? (int) $matched['points'] : null,
-                'ranking_coef' => $matched !== null && $matched['ranking_coef'] !== null ? (float) $matched['ranking_coef'] : null,
+                'points'        => $matched !== null ? (int) $matched['points'] : null,
+                'ranking_coef'  => $matched !== null && $matched['ranking_coef'] !== null ? (float) $matched['ranking_coef'] : null,
             ];
         }
     }
 
-    // Seřazení závodníků v kategorii podle rankingového pořadí (nepárovaní na konec)
     $classesOutput = [];
-    foreach ($rankingClasses as $cls) {
-        usort($cls['entries'], static function (array $a, array $b): int {
-            $posA = $a['rank_position'] ?? PHP_INT_MAX;
-            $posB = $b['rank_position'] ?? PHP_INT_MAX;
-            if ($posA !== $posB) {
-                return $posA <=> $posB;
+    foreach ($rankingClasses as$cls) {
+        usort($cls['entries'], static function (array $a, array$b): int {
+            $posA =$a['rank_position'] ?? PHP_INT_MAX;
+            $posB =$b['rank_position'] ?? PHP_INT_MAX;
+            if ($posA !==$posB) {
+                return $posA <=>$posB;
             }
-            return strcmp((string) $a['name'], (string) $b['name']);
+            return strcmp((string) $a['name'], (string)$b['name']);
         });
 
-        $g = $cls['gender'];
+        $g =$cls['gender'];
         $hasSnapshot = ($g !== null && isset($snapshotsByGender[$g]));
-        $cls['has_snapshot'] = $hasSnapshot;
-        $cls['snapshot_id'] = $hasSnapshot ? (int) $snapshotsByGender[$g]['id'] : null;
-        $classesOutput[] = $cls;
+        $cls['has_snapshot'] =$hasSnapshot;
+        $cls['snapshot_id'] =$hasSnapshot ? (int) $snapshotsByGender[$g]['id'] : null;
+        $classesOutput[] =$cls;
     }
 
     echo json_encode([
         'event' => [
-            'oris_id' => $eventId,
-            'name' => $eventName,
-            'event_date' => $eventDate,
-            'ranking_type' => $rankingType,
+            'oris_id'       => $eventId,
+            'name'          => $eventName,
+            'event_date'    => $eventDate,
+            'ranking_type'  => $rankingType,
             'decision_date' => $decisionDate,
         ],
-        'snapshots_found' => array_keys($snapshotsByGender),
-        'classes' => $classesOutput,
+        'snapshots_found'     => array_keys($snapshotsByGender),
+        'auto_imported_count' => $autoImportedCount,
+        'classes'             => $classesOutput,
     ], JSON_UNESCAPED_UNICODE);
 } catch (Throwable $e) {
     http_response_code(500);
