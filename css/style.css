@@ -456,6 +456,23 @@ body {
   border-radius: 999px;
 }
 
+.col-idx {
+  width: 3.2rem;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.top4-row {
+  background-color: #eaf4ff;
+}
+
+.top4-row td:first-child {
+  border-left: 3px solid var(--accent);
+  font-weight: 600;
+  color: var(--text);
+}
+
 @media (max-width: 640px) {
   .status-text {
     margin-left: 0;
