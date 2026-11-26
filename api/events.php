@@ -24,7 +24,7 @@ try {
 }
 
 $today = new DateTimeImmutable('today');
-$dateFrom = $today->modify('-7 days')->format('Y-m-d');
+$dateFrom = $today->modify('-31 days')->format('Y-m-d');
 $dateTo = $today->modify('+31 days')->format('Y-m-d');
 
 $forceRefresh = isset($_GET['refresh']) && $_GET['refresh'] === '1';
