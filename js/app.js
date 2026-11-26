@@ -13,6 +13,8 @@ function escapeHtml(value) {
 }
 
 function renderEvents(events) {
+  if (!eventsBody) return;
+
   if (!events.length) {
     eventsBody.innerHTML = '<tr><td colspan="5" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
     return;
@@ -37,7 +39,7 @@ function renderEvents(events) {
 }
 
 function applyFilter() {
-  const query = searchInput.value.trim().toLowerCase();
+  const query = (searchInput?.value ?? '').trim().toLowerCase();
   if (!query) {
     renderEvents(allEvents);
     return;
@@ -52,7 +54,9 @@ function applyFilter() {
 }
 
 async function loadEvents() {
-  statusText.textContent = 'Načítám závody...';
+  if (statusText) {
+    statusText.textContent = 'Načítám závody...';
+  }
 
   try {
     const response = await fetch('api/events.php');
@@ -66,14 +70,20 @@ async function loadEvents() {
     }
 
     allEvents = Array.isArray(data.events) ? data.events : [];
-    statusText.textContent = `Zobrazeno ${allEvents.length} závodů (${data.dateFrom} až ${data.dateTo})`;
+    if (statusText) {
+      statusText.textContent = `Zobrazeno ${allEvents.length} závodů (${data.dateFrom} až ${data.dateTo})`;
+    }
     applyFilter();
   } catch (err) {
-    statusText.textContent = 'Chyba při načítání';
-    eventsBody.innerHTML = `<tr><td colspan="5" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
+    if (statusText) {
+      statusText.textContent = 'Chyba při načítání';
+    }
+    if (eventsBody) {
+      eventsBody.innerHTML = `<tr><td colspan="5" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
+    }
   }
 }
 
-searchInput.addEventListener('input', applyFilter);
+searchInput?.addEventListener('input', applyFilter);
 
 loadEvents();
