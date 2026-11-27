@@ -1,5 +1,7 @@
 const eventsBody = document.getElementById('eventsBody');
 const searchInput = document.getElementById('searchInput');
+const onlyRankingCheckbox = document.getElementById('onlyRankingCheckbox');
+const rankingTypeFilter = document.getElementById('rankingTypeFilter');
 const statusText = document.getElementById('statusText');
 
 let allEvents = [];
@@ -64,6 +66,28 @@ function isRankingEvent(ev) {
   return true;
 }
 
+function parseCoef(val) {
+  if (val === null || val === undefined || val === '') return -Infinity;
+  const num = Number(String(val).replace(',', '.').trim());
+  return Number.isFinite(num) ? num : -Infinity;
+}
+
+function sortEntriesByCoefDesc(entries) {
+  return [...entries].sort((a, b) => {
+    const coefA = parseCoef(a.ranking_coef);
+    const coefB = parseCoef(b.ranking_coef);
+    if (coefB !== coefA) return coefB - coefA;
+
+    const pointsA = Number(a.points ?? -Infinity);
+    const pointsB = Number(b.points ?? -Infinity);
+    if (Number.isFinite(pointsA) && Number.isFinite(pointsB) && pointsB !== pointsA) {
+      return pointsB - pointsA;
+    }
+
+    return String(a.name ?? '').localeCompare(String(b.name ?? ''), 'cs');
+  });
+}
+
 function ensureDetailContainer() {
   if (detailContainer) return detailContainer;
 
@@ -76,7 +100,8 @@ function ensureDetailContainer() {
 }
 
 function renderClassTable(cls) {
-  const entries = Array.isArray(cls.entries) ? cls.entries : [];
+  const rawEntries = Array.isArray(cls.entries) ? cls.entries : [];
+  const entries = sortEntriesByCoefDesc(rawEntries);
   const totalCount = entries.length;
   const genderLabel = formatGenderLabel(cls.gender);
   const koefLabel =
@@ -228,7 +253,7 @@ function renderEvents(events) {
 
   if (!events.length) {
     eventsBody.innerHTML =
-      '<tr><td colspan="9" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
+      '<tr><td colspan="8" class="empty-cell">Žádné závody neodpovídají filtru.</td></tr>';
     return;
   }
 
@@ -238,6 +263,7 @@ function renderEvents(events) {
       const orisUrl = `https://oris.ceskyorientak.cz/Zavod?id=${encodeURIComponent(ev.oris_id)}`;
       const cancelledClass = Number(ev.is_cancelled) === 1 ? ' class="cancelled-row"' : '';
       const sportLabel = formatSport(ev);
+      const rankingLabel = ev.ranking_code || ev.level_code || ev.level_name || '—';
 
       return `
       <tr data-oris-id="${id}"${cancelledClass} style="cursor:pointer;">
@@ -255,8 +281,7 @@ function renderEvents(events) {
         <td class="nowrap">${escapeHtml(ev.region || '—')}</td>
         <td class="nowrap">${escapeHtml(sportLabel)}</td>
         <td class="nowrap">${escapeHtml(ev.discipline_name || '—')}</td>
-        <td class="nowrap">${escapeHtml(ev.level_code || ev.level_name || '—')}</td>
-        <td class="nowrap">${escapeHtml(ev.entries_count ?? 0)}</td>
+        <td class="nowrap">${escapeHtml(rankingLabel)}</td>
       </tr>
     `;
     })
@@ -284,33 +309,41 @@ eventsBody?.addEventListener('click', (event) => {
 });
 
 function applyFilter() {
-  const baseEvents = allEvents.filter(isRankingEvent);
+  const onlyRanking = onlyRankingCheckbox ? onlyRankingCheckbox.checked : true;
+  const selectedType = (rankingTypeFilter?.value ?? 'all').toLowerCase();
   const query = (searchInput?.value ?? '').trim().toLowerCase();
 
-  if (!query) {
-    renderEvents(baseEvents);
-    return;
+  let list = onlyRanking ? allEvents.filter(isRankingEvent) : [...allEvents];
+
+  if (selectedType !== 'all') {
+    list = list.filter((ev) => {
+      const rType = String(ev.ranking_type ?? ev.discipline_name ?? '').toLowerCase();
+      return rType.includes(selectedType);
+    });
   }
 
-  const filtered = baseEvents.filter((ev) => {
-    const haystack = [
-      ev.name,
-      ev.clubs,
-      ev.region,
-      ev.sport_name,
-      ev.sport_id,
-      formatSport(ev),
-      ev.discipline_name,
-      ev.level_code,
-      ev.level_name,
-      ev.oris_id,
-    ]
-      .join(' ')
-      .toLowerCase();
-    return haystack.includes(query);
-  });
+  if (query) {
+    list = list.filter((ev) => {
+      const haystack = [
+        ev.name,
+        ev.clubs,
+        ev.region,
+        ev.sport_name,
+        ev.sport_id,
+        formatSport(ev),
+        ev.discipline_name,
+        ev.level_code,
+        ev.level_name,
+        ev.ranking_code,
+        ev.oris_id,
+      ]
+        .join(' ')
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }
 
-  renderEvents(filtered);
+  renderEvents(list);
 }
 
 async function loadEvents() {
@@ -340,11 +373,13 @@ async function loadEvents() {
       statusText.textContent = 'Chyba při načítání';
     }
     if (eventsBody) {
-      eventsBody.innerHTML = `<tr><td colspan="9" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
+      eventsBody.innerHTML = `<tr><td colspan="8" class="empty-cell">Nepodařilo se načíst závody: ${escapeHtml(err.message)}</td></tr>`;
     }
   }
 }
 
 searchInput?.addEventListener('input', applyFilter);
+onlyRankingCheckbox?.addEventListener('change', applyFilter);
+rankingTypeFilter?.addEventListener('change', applyFilter);
 
 loadEvents();
